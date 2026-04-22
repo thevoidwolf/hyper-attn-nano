@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.pyc
+*.egg-info/
+
+# Virtual environment
+.venv/
+
+# Data (large binary files — run scripts/data_prep.py to regenerate)
+data/
+
+# Model checkpoints (large binary files — not tracked)
+results/checkpoints/
+
+# Windows Zone Identifier artifacts
+*.Zone.Identifier
+*:Zone.Identifier
+
+# OS
+.DS_Store
+Thumbs.db

@@ -1,0 +1,23 @@
+model:
+  type:        hyper-perhead
+  d_model:     128
+  n_layers:    4
+  n_heads:     4
+  d_ff:        512
+  max_seq_len: 256
+  vocab_size:  50257
+  init_K:      -1.0
+
+training:
+  dataset:       wikitext2
+  data_dir:      data/wikitext2
+  batch_size:    32
+  max_steps:     5000
+  eval_interval: 250
+  log_interval:  50
+  eval_batches:  50
+  lr:            6.0e-4      # raised from 3e-4 — same calibration as hyper-fixed-v2
+  weight_decay:  0.1
+  warmup_steps:  300         # slightly longer warmup to keep early steps stable at higher LR
+  min_lr_ratio:  0.1
+  seed:          42

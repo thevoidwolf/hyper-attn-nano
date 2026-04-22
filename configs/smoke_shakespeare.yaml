@@ -1,0 +1,22 @@
+model:
+  type:        hyper-perhead
+  d_model:     64
+  n_layers:    2
+  n_heads:     4
+  d_ff:        256
+  max_seq_len: 128
+  vocab_size:  65              # character-level
+
+training:
+  dataset:       shakespeare
+  data_dir:      data/shakespeare
+  batch_size:    16
+  max_steps:     500
+  eval_interval: 100
+  log_interval:  25
+  eval_batches:  20
+  lr:            3.0e-4
+  weight_decay:  0.1
+  warmup_steps:  50
+  min_lr_ratio:  0.1
+  seed:          42

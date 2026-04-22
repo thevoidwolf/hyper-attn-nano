@@ -1,0 +1,15 @@
+# Install PyTorch separately for your CUDA version:
+#   https://pytorch.org/get-started/locally/
+# e.g. pip install torch==2.7.0+cu126 --index-url https://download.pytorch.org/whl/cu126
+
+geoopt==0.5.0
+scipy==1.11.4          # pinned — geoopt breaks with scipy 1.14+
+numpy==1.26.4
+transformers==4.40.2
+datasets==2.19.1
+einops==0.8.2
+matplotlib==3.10.8
+seaborn==0.13.2
+tqdm==4.67.3
+pyyaml==6.0.3
+pytest==9.0.3

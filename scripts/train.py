@@ -156,6 +156,10 @@ def main():
     # Propagate optional model flags — these were previously dropped here (float64 bug)
     if "manifold_float64" in cfg["model"]:
         model_cfg["manifold_float64"] = cfg["model"]["manifold_float64"]
+    if "output_head" in cfg["model"]:
+        model_cfg["output_head"] = cfg["model"]["output_head"]
+    if "spherical_temperature_init" in cfg["model"]:
+        model_cfg["spherical_temperature_init"] = cfg["model"]["spherical_temperature_init"]
     init_K         = cfg["model"].get("init_K", -1.0)
     curvature      = cfg["model"].get("curvature", init_K)
     curvature_init = cfg["model"].get("curvature_init", None)

@@ -18,9 +18,10 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from manifolds import exp_map_origin, log_map_origin
-from attention import EuclideanAttention, LorentzScoreOnlyAttention, _causal_mask
-from blocks    import HyperDecoderBlock, LorentzRMSNorm  # noqa: F401
+from manifolds    import exp_map_origin, log_map_origin
+from attention    import EuclideanAttention, LorentzScoreOnlyAttention, _causal_mask
+from blocks       import HyperDecoderBlock, LorentzRMSNorm  # noqa: F401
+from output_head  import SphericalOutputHead
 
 
 def _manifolds_already_float64() -> bool:
@@ -111,8 +112,13 @@ class HyperAttnNano(nn.Module):
 
         self.norm = LorentzRMSNorm(d_model)
 
-        self.lm_head = nn.Linear(d_model, vocab_size, bias=False)
-        self.lm_head.weight = self.embed.weight
+        _out_head_type = config.get('output_head', 'standard')
+        if _out_head_type == 'spherical':
+            _temp = config.get('spherical_temperature_init', 10.0)
+            self.lm_head = SphericalOutputHead(d_model, vocab_size, _temp)
+        else:
+            self.lm_head = nn.Linear(d_model, vocab_size, bias=False)
+            self.lm_head.weight = self.embed.weight
 
         # Enable float64 manifold ops if requested by config (Experiment B2)
         if config.get("manifold_float64", False):
@@ -224,8 +230,13 @@ class GPTNano(nn.Module):
         ])
 
         self.norm    = _RMSNorm(d_model)
-        self.lm_head = nn.Linear(d_model, vocab_size, bias=False)
-        self.lm_head.weight = self.embed.weight
+        _out_head_type = config.get('output_head', 'standard')
+        if _out_head_type == 'spherical':
+            _temp = config.get('spherical_temperature_init', 10.0)
+            self.lm_head = SphericalOutputHead(d_model, vocab_size, _temp)
+        else:
+            self.lm_head = nn.Linear(d_model, vocab_size, bias=False)
+            self.lm_head.weight = self.embed.weight
 
     def forward(self, input_ids, targets=None):
         B, S   = input_ids.shape
@@ -320,8 +331,13 @@ class ScoresOnlyNano(nn.Module):
         ])
 
         self.norm    = _RMSNorm(d_model)
-        self.lm_head = nn.Linear(d_model, vocab_size, bias=False)
-        self.lm_head.weight = self.embed.weight
+        _out_head_type = config.get('output_head', 'standard')
+        if _out_head_type == 'spherical':
+            _temp = config.get('spherical_temperature_init', 10.0)
+            self.lm_head = SphericalOutputHead(d_model, vocab_size, _temp)
+        else:
+            self.lm_head = nn.Linear(d_model, vocab_size, bias=False)
+            self.lm_head.weight = self.embed.weight
 
     def forward(self, input_ids, targets=None):
         B, S   = input_ids.shape

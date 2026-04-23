@@ -1,0 +1,34 @@
+model:
+  type:        hyper-fixed
+  d_model:     128
+  n_layers:    4
+  n_heads:     4
+  d_ff:        512
+  max_seq_len: 256
+  vocab_size:  50257
+  curvature:        -10.0
+  manifold_float64:  true
+  output_head: spherical
+  spherical_temperature_init: 10.0
+  curvature_schedule:
+    type:         linear_warmup
+    k_start:      -1.0
+    k_end:        -10.0
+    warmup_steps: 500
+
+training:
+  dataset:       codeparrot
+  data_dir:      data/codeparrot
+  batch_size:    32
+  max_steps:     9000
+  eval_interval: 250
+  log_interval:  50
+  eval_batches:  50
+  lr:            6.0e-4
+  weight_decay:  0.1
+  warmup_steps:  500
+  min_lr_ratio:  0.1
+  seed:          42
+
+run_id:  "exp_oob3_spherical_head_code"
+log_dir: "results/logs/oob3"

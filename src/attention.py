@@ -286,3 +286,125 @@ class EuclideanAttention(nn.Module):
 
         out = out.permute(0, 2, 1, 3).contiguous().view(B, S, self.n_heads * self.d_head)
         return self.W_o(out)
+
+
+# ---------------------------------------------------------------------------
+# LorentzScoreOnlyAttention — hyperbolic scores, Euclidean values
+# ---------------------------------------------------------------------------
+
+class LorentzScoreOnlyAttention(nn.Module):
+    """
+    Score-only hyperbolic attention.
+
+    Q and K are projected to the Lorentz manifold to compute attention scores
+    using the Minkowski inner product. V stays Euclidean — aggregation is a
+    plain weighted sum with no exp_map / log_map on the value path.
+
+    This isolates the "geometry helps similarity computation" hypothesis
+    without paying the capacity cost of round-tripping values through the
+    tangent space.
+
+    Interface is identical to EuclideanAttention:
+        Input:  x of shape (B, S, d_model)  — Euclidean
+        Output: shape (B, S, d_model)        — Euclidean
+
+    Score formula (one shared curvature across all heads):
+        score_ij = |K| * (-<Q_i, K_j>_L) / √d_head
+        where <·,·>_L = -q0·k0 + q_spatial·k_spatial
+
+    The |K| scaling matches LorentzPerHeadAttention — sharper distributions
+    at higher curvature.
+    """
+
+    def __init__(
+        self,
+        d_model:        int,
+        n_heads:        int,
+        d_head:         int,
+        curvature_init: float = -1.0,
+        init_K:         float | None = None,   # backward-compat alias
+    ):
+        super().__init__()
+
+        if init_K is not None:
+            curvature_init = init_K
+        assert curvature_init < 0, f"curvature_init must be negative, got {curvature_init}"
+
+        self.d_model = d_model
+        self.n_heads = n_heads
+        self.d_head  = d_head
+
+        # Single shared curvature across all heads.
+        # Stored as log(|K|) so it stays negative under any gradient update.
+        init_log = math.log(-curvature_init)
+        self.log_abs_K = nn.Parameter(torch.tensor(init_log))
+
+        # Linear projections — identical to EuclideanAttention
+        self.W_q = nn.Linear(d_model, n_heads * d_head, bias=False)
+        self.W_k = nn.Linear(d_model, n_heads * d_head, bias=False)
+        self.W_v = nn.Linear(d_model, n_heads * d_head, bias=False)
+        self.W_o = nn.Linear(n_heads * d_head, d_model, bias=False)
+
+    @property
+    def K(self) -> torch.Tensor:
+        """Current curvature (always negative). Scalar tensor."""
+        return -torch.exp(self.log_abs_K)
+
+    def forward(
+        self,
+        x:    torch.Tensor,
+        mask: torch.Tensor | None = None,
+    ) -> torch.Tensor:
+        """
+        Args:
+            x   : (B, S, d_model)  — Euclidean input
+            mask: (1, 1, S, S) bool, or None for auto causal mask
+
+        Returns:
+            out : (B, S, d_model)  — Euclidean output
+        """
+        B, S, _ = x.shape
+        x = x.float()
+
+        # ── Step 1: Q / K / V projections (Euclidean) ────────────────────────
+        Q  = self.W_q(x).view(B, S, self.n_heads, self.d_head)   # (B,S,H,Dh)
+        Kp = self.W_k(x).view(B, S, self.n_heads, self.d_head)   # (B,S,H,Dh)
+        V  = self.W_v(x).view(B, S, self.n_heads, self.d_head)   # (B,S,H,Dh)
+
+        # ── Step 2: Lift Q and K to Lorentz manifold ─────────────────────────
+        # All heads share a single curvature K (scalar).
+        K_val  = self.K                          # scalar tensor
+        Q_hyp  = exp_map_batched(Q,  K_val.unsqueeze(0).expand(self.n_heads))   # (B,S,H,Dh+1)
+        K_hyp  = exp_map_batched(Kp, K_val.unsqueeze(0).expand(self.n_heads))   # (B,S,H,Dh+1)
+
+        # ── Step 3: Lorentz attention scores ─────────────────────────────────
+        Q_hyp = Q_hyp.permute(0, 2, 1, 3)   # (B, H, S_q, Dh+1)
+        K_hyp = K_hyp.permute(0, 2, 1, 3)   # (B, H, S_k, Dh+1)
+        V     =     V.permute(0, 2, 1, 3)   # (B, H, S,   Dh)
+
+        # Minkowski inner product: <Q_i, K_j>_L = -Q_t·K_t + Q_s·K_s
+        Q_t, Q_s = Q_hyp[..., :1], Q_hyp[..., 1:]   # (B,H,S,1), (B,H,S,Dh)
+        K_t, K_s = K_hyp[..., :1], K_hyp[..., 1:]
+
+        time_term  = -(Q_t @ K_t.transpose(-2, -1))   # (B,H,S_q,S_k)
+        space_term =   Q_s @ K_s.transpose(-2, -1)    # (B,H,S_q,S_k)
+        lorentz_ip = time_term + space_term
+
+        # score = |K| * (-<Q, K>_L) / √d_head
+        abs_K  = self.K.abs().view(1, 1, 1, 1)           # (1,1,1,1)
+        scores = abs_K * (-lorentz_ip) / math.sqrt(self.d_head)   # (B,H,S,S)
+
+        # ── Step 4: Causal mask ───────────────────────────────────────────────
+        if mask is None:
+            mask = _causal_mask(S, x.device)
+        scores = scores.masked_fill(mask, float('-inf'))
+
+        # ── Step 5: Softmax + Euclidean V aggregation ─────────────────────────
+        # V path: no manifold operations — just standard weighted sum
+        attn_weights = F.softmax(scores, dim=-1)          # (B,H,S_q,S_k)
+        out = attn_weights @ V                            # (B,H,S_q,Dh)
+
+        # ── Step 6: Concat heads → project to d_model ────────────────────────
+        out = out.permute(0, 2, 1, 3).contiguous()       # (B,S,H,Dh)
+        out = out.view(B, S, self.n_heads * self.d_head) # (B,S,H*Dh)
+        return self.W_o(out)                             # (B,S,d_model)

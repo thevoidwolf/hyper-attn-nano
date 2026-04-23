@@ -19,3 +19,6 @@ results/checkpoints/
 # OS
 .DS_Store
 Thumbs.db
+
+# Spec files
+specs

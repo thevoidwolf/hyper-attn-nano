@@ -16,6 +16,8 @@ import json
 import math
 import os
 import sys
+import time
+import warnings
 
 import numpy as np
 import torch
@@ -24,7 +26,8 @@ import yaml
 # Make src/ importable when running from the project root
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
-from model import HyperAttnNano, GPTNano  # noqa: E402
+from model import HyperAttnNano, GPTNano, ScoresOnlyNano  # noqa: E402
+from training.curvature_schedule import build_schedule  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
@@ -121,6 +124,8 @@ def open_jsonl_log(cfg) -> tuple[str, "IO"]:
 def main():
     parser = argparse.ArgumentParser(description="Train a HyperAttn-Nano variant")
     parser.add_argument("--config", required=True, help="Path to YAML config file")
+    parser.add_argument("--no-abort", action="store_true",
+                        help="Disable early-abort on bad configs (for deliberate exploration)")
     args = parser.parse_args()
 
     with open(args.config) as f:
@@ -148,6 +153,9 @@ def main():
         k: cfg["model"][k]
         for k in ["d_model", "n_layers", "n_heads", "d_ff", "max_seq_len", "vocab_size"]
     }
+    # Propagate optional model flags — these were previously dropped here (float64 bug)
+    if "manifold_float64" in cfg["model"]:
+        model_cfg["manifold_float64"] = cfg["model"]["manifold_float64"]
     init_K         = cfg["model"].get("init_K", -1.0)
     curvature      = cfg["model"].get("curvature", init_K)
     curvature_init = cfg["model"].get("curvature_init", None)
@@ -155,20 +163,74 @@ def main():
 
     if model_type == "euclid":
         model = GPTNano(model_cfg)
+    elif model_type == "hyper-scores-only":
+        model = ScoresOnlyNano(model_cfg, fixed_curvature=curvature)
     else:
         model = HyperAttnNano(model_cfg, fixed_curvature=curvature, curvature_init=curvature_init)
 
     model = model.to(device)
 
-    # Freeze curvatures for hyper-fixed variant
-    if model_type == "hyper-fixed":
+    # ── Curvature schedule setup ───────────────────────────────────────────
+    curv_schedule = None
+    schedule_mode = "frozen_schedule"
+    schedule_cfg  = cfg["model"].get("curvature_schedule", None)
+
+    if schedule_cfg is not None:
+        # Warn if both curvature and curvature_schedule are present
+        if "curvature" in cfg["model"] or "init_K" in cfg["model"]:
+            warnings.warn(
+                "[CONFIG] Both 'curvature' and 'curvature_schedule' are set. "
+                "'curvature_schedule' takes precedence.",
+                UserWarning,
+                stacklevel=2,
+            )
+        curv_schedule = build_schedule(schedule_cfg)
+        schedule_mode = schedule_cfg.get("schedule_mode", "frozen_schedule")
+        print(f"[CONFIG] Curvature schedule: {schedule_cfg['type']}  "
+              f"k_start={schedule_cfg.get('k_start', 'N/A')}  "
+              f"k_end={schedule_cfg.get('k_end', schedule_cfg.get('k_start', 'N/A'))}  "
+              f"warmup={schedule_cfg.get('warmup_steps', 'N/A')}  "
+              f"mode={schedule_mode}")
+
+    # Freeze curvatures for hyper-fixed variant (or when schedule overrides)
+    if model_type == "hyper-fixed" or (
+        model_type in ("hyper-perhead", "hyper-scores-only")
+        and curv_schedule is not None
+        and schedule_mode == "frozen_schedule"
+    ):
         for block in model.blocks:
             block.attn.log_abs_K.requires_grad_(False)
-        print("  hyper-fixed: log_abs_K frozen (curvature will not be learned)")
+        if curv_schedule is None:
+            print("  hyper-fixed: log_abs_K frozen (curvature will not be learned)")
+            print(f"[CONFIG] Fixed curvature K = {curvature}")
+        else:
+            print("  curvature schedule active: log_abs_K frozen and will be overridden each step")
+    elif model_type == "hyper-scores-only" and curv_schedule is None:
+        # No schedule → freeze the single shared curvature
+        for block in model.blocks:
+            block.attn.log_abs_K.requires_grad_(False)
+        print("  hyper-scores-only: log_abs_K frozen (curvature will not be learned)")
         print(f"[CONFIG] Fixed curvature K = {curvature}")
 
     param_count = sum(p.numel() for p in model.parameters())
     print(f"  Parameters: {param_count:,}")
+
+    # ── Early-abort baseline ───────────────────────────────────────────────
+    _BASELINE_PATH = os.path.join(
+        os.path.dirname(__file__), "..", "configs", "baselines",
+        "euclid_wikitext2_step500_ppl.json"
+    )
+    abort_threshold: float | None = None
+    if not args.no_abort:
+        if os.path.exists(_BASELINE_PATH):
+            with open(_BASELINE_PATH) as _f:
+                _baseline = json.load(_f)
+            abort_threshold = _baseline["val_ppl"] * 10.0
+            print(f"[ABORT] Early-abort enabled. Threshold at step 500: PPL > {abort_threshold:.1f}")
+        else:
+            print(f"[ABORT] Baseline file not found at {_BASELINE_PATH} — early-abort disabled.")
+    else:
+        print("[ABORT] Early-abort disabled (--no-abort).")
 
     # ── Training config ────────────────────────────────────────────────────
     tcfg          = cfg["training"]
@@ -227,6 +289,12 @@ def main():
     print(f"\nStarting training: {model_type} | {max_steps} steps")
     print("=" * 60)
 
+    # ── Compute budget tracking ────────────────────────────────────────────
+    train_start_time = time.time()
+    total_tokens_processed = 0
+    if device.type == "cuda":
+        torch.cuda.reset_peak_memory_stats(device)
+
     # ── Training loop ──────────────────────────────────────────────────────
     for step in range(max_steps):
 
@@ -241,12 +309,15 @@ def main():
 
             # Write incremental JSONL record
             import json as _json
-            jsonl_file.write(_json.dumps({
+            jsonl_record = {
                 "step":       step,
                 "train_loss": last_train_loss,
                 "val_ppl":    perplexity,
                 "grad_norm":  last_grad_norm,
-            }) + "\n")
+            }
+            if curv_schedule is not None:
+                jsonl_record["scheduled_K"] = curv_schedule.k_at_step(step)
+            jsonl_file.write(_json.dumps(jsonl_record) + "\n")
             jsonl_file.flush()
 
             # Curvature snapshot (HyperAttnNano only)
@@ -259,6 +330,41 @@ def main():
                         f"  curvature: min={min(vals):.3f}  max={max(vals):.3f}  "
                         f"std={torch.tensor(vals).std().item():.3f}"
                     )
+
+            # ── Early-abort check at step 500 ─────────────────────────────
+            if step == 500 and abort_threshold is not None:
+                if perplexity > abort_threshold:
+                    reason = (
+                        f"val_ppl={perplexity:.1f} > {abort_threshold:.1f} "
+                        f"(10× Euclidean baseline at step 500)"
+                    )
+                    print(f"[ABORT] Early abort at step {step}: {reason}")
+                    import json as _json2
+                    jsonl_file.write(_json2.dumps({
+                        "event": "ABORTED",
+                        "step":  step,
+                        "reason": reason,
+                    }) + "\n")
+                    jsonl_file.flush()
+                    jsonl_file.close()
+                    save_log(log, cfg)
+                    return
+
+        # ── Apply curvature schedule ──────────────────────────────────────
+        if curv_schedule is not None and hasattr(model, "blocks"):
+            k_now = curv_schedule.k_at_step(step)
+            import math as _math
+            log_abs_k = _math.log(abs(k_now))
+            warmup_done = step >= schedule_cfg.get("warmup_steps", 0)
+            with torch.no_grad():
+                for block in model.blocks:
+                    if hasattr(block, "attn") and hasattr(block.attn, "log_abs_K"):
+                        block.attn.log_abs_K.fill_(log_abs_k)
+            # For init_only mode: release to optimizer after warmup
+            if schedule_mode == "init_only" and warmup_done:
+                for block in model.blocks:
+                    if hasattr(block, "attn") and hasattr(block.attn, "log_abs_K"):
+                        block.attn.log_abs_K.requires_grad_(True)
 
         # ── Train step ────────────────────────────────────────────────────
         model.train()
@@ -295,6 +401,7 @@ def main():
 
         last_train_loss = loss.item()
         last_grad_norm  = grad_norm.item()
+        total_tokens_processed += batch_size * block_size
         log["train_loss"].append(
             {"step": step, "loss": loss.item(), "grad_norm": grad_norm.item()}
         )
@@ -309,6 +416,30 @@ def main():
     # ── Save checkpoint and log ───────────────────────────────────────────
     save_checkpoint(model, optimizer, step, cfg, log)
     save_log(log, cfg)
+
+    # ── Compute budget run_meta ───────────────────────────────────────────
+    wall_time = time.time() - train_start_time
+    throughput = total_tokens_processed / max(wall_time, 1.0)
+
+    peak_vram_gb = 0.0
+    if device.type == "cuda":
+        peak_vram_gb = torch.cuda.max_memory_allocated(device) / 1e9
+
+    run_meta = {
+        "event":                  "run_complete",
+        "wall_time_seconds":      round(wall_time, 1),
+        "peak_vram_gb":           round(peak_vram_gb, 2),
+        "gpu_util_percent_mean":  None,   # requires pynvml polling — not tracked
+        "throughput_tok_per_sec": round(throughput, 1),
+        "compute_budget_used_hours": round(wall_time / 3600.0, 4),
+    }
+    import json as _json_meta
+    jsonl_file.write(_json_meta.dumps(run_meta) + "\n")
+    jsonl_file.flush()
+    jsonl_file.close()
+
+    print(f"\nRun complete: {wall_time:.1f}s | {throughput:.0f} tok/s | "
+          f"peak VRAM {peak_vram_gb:.2f} GB")
     print("\nDone.")
 
 

@@ -61,7 +61,10 @@ def _load_jsonl(run_id: str) -> list[dict]:
             line = line.strip()
             if line:
                 try:
-                    records.append(json.loads(line))
+                    rec = json.loads(line)
+                    # Skip event records (run_meta, ABORTED, etc.) — no "step" key
+                    if "step" in rec:
+                        records.append(rec)
                 except json.JSONDecodeError:
                     pass
     return records
@@ -85,7 +88,9 @@ def _load_jsonl_external(path: str) -> list[dict]:
             line = line.strip()
             if line:
                 try:
-                    records.append(json.loads(line))
+                    rec = json.loads(line)
+                    if "step" in rec:
+                        records.append(rec)
                 except json.JSONDecodeError:
                     pass
     return records
@@ -109,61 +114,96 @@ def _load_v3_curvatures(log_path: str) -> dict[str, float] | None:
 # ---------------------------------------------------------------------------
 
 def plot_gap_comparison(out_dir: str) -> None:
-    code_euclid = _get_final_ppl("exp_d_euclid")
-    code_hyper  = _get_final_ppl("exp_d_k10_f32")
+    code_euclid   = _get_final_ppl("exp_d_euclid")
+    code_hyper_f32 = _get_final_ppl("exp_d_k10_f32")
+    code_hyper_f64 = _get_final_ppl("exp_d_k10_f64")   # Probe 3 corrected rerun
 
-    fig, ax = plt.subplots(figsize=(8, 5))
+    # Layout: 3 groups — WikiText-2, CodeParrot f32, CodeParrot f64 (corrected)
+    # WikiText-2 group has no f64 bar (B experiment only ran f32)
+    color_e   = "#4C72B0"
+    color_f32 = "#DD8452"
+    color_f64 = "#55A868"
 
-    datasets = ["WikiText-2", "CodeParrot"]
-    euclid_ppls = [WT2_EUCLID, code_euclid]
-    hyper_ppls  = [WT2_HYPER_K10, code_hyper]
+    # Build groups dynamically so missing f64 data degrades gracefully
+    groups = [
+        ("WikiText-2",         WT2_EUCLID,   WT2_HYPER_K10, None),
+        ("CodeParrot\n(f32)",  code_euclid,  code_hyper_f32, None),
+    ]
+    if code_hyper_f64 is not None:
+        groups.append(("CodeParrot\n(f64 fixed)", code_euclid, None, code_hyper_f64))
 
-    x      = np.arange(len(datasets))
-    width  = 0.35
-    color_e = "#4C72B0"
-    color_h = "#DD8452"
+    n_groups = len(groups)
+    x     = np.arange(n_groups)
+    width = 0.28
 
-    bars_e = ax.bar(x - width / 2, euclid_ppls, width, label="Euclidean",
-                    color=color_e, alpha=0.85, edgecolor="white")
-    bars_h = ax.bar(x + width / 2, hyper_ppls, width, label="Hyper K=−10 f32",
-                    color=color_h, alpha=0.85, edgecolor="white")
+    fig, ax = plt.subplots(figsize=(max(8, n_groups * 3), 5))
 
-    # Annotate gap values above the hyperbolic bar
-    for i, (ep, hp) in enumerate(zip(euclid_ppls, hyper_ppls)):
-        if ep is None or hp is None:
-            continue
-        gap = hp - ep
-        sign = "+" if gap >= 0 else ""
-        ax.annotate(
-            f"gap {sign}{gap:.1f}",
-            xy=(x[i] + width / 2, hp),
-            xytext=(0, 6),
-            textcoords="offset points",
-            ha="center", fontsize=9, color="dimgray",
-        )
+    bars_e   = []
+    bars_f32 = []
+    bars_f64 = []
+
+    for i, (label, ep, hp32, hp64) in enumerate(groups):
+        if ep is not None:
+            b = ax.bar(x[i] - width, ep, width, color=color_e, alpha=0.85,
+                       edgecolor="white",
+                       label="Euclidean" if i == 0 else "_nolegend_")
+            bars_e.append((b, ep))
+        if hp32 is not None:
+            b = ax.bar(x[i], hp32, width, color=color_f32, alpha=0.85,
+                       edgecolor="white",
+                       label="Hyper K=−10 f32" if i == 0 else "_nolegend_")
+            bars_f32.append((b, hp32, ep))
+        if hp64 is not None:
+            b = ax.bar(x[i] + width, hp64, width, color=color_f64, alpha=0.85,
+                       edgecolor="white", hatch="//",
+                       label="Hyper K=−10 f64 (Probe 3 fix)")
+            bars_f64.append((b, hp64, ep))
 
     # Annotate bar heights
-    for bar in bars_e:
-        h = bar.get_height()
-        if h is not None:
-            ax.text(bar.get_x() + bar.get_width() / 2, h + 1,
-                    f"{h:.1f}", ha="center", va="bottom", fontsize=8.5)
-    for bar in bars_h:
-        h = bar.get_height()
-        if h is not None:
-            ax.text(bar.get_x() + bar.get_width() / 2, h + 1,
-                    f"{h:.1f}", ha="center", va="bottom", fontsize=8.5)
+    def _label_bar(b, h):
+        if h is not None and math.isfinite(h):
+            ax.text(b.get_x() + b.get_width() / 2, h + 1,
+                    f"{h:.1f}", ha="center", va="bottom", fontsize=8)
+
+    for b, h in bars_e:
+        for bar in b:
+            _label_bar(bar, h)
+    for b, h, ep in bars_f32:
+        for bar in b:
+            _label_bar(bar, h)
+        if ep is not None and h is not None and math.isfinite(h) and math.isfinite(ep):
+            gap = h - ep
+            sign = "+" if gap >= 0 else ""
+            ax.annotate(f"gap {sign}{gap:.1f}",
+                        xy=(bar.get_x() + bar.get_width() / 2, h),
+                        xytext=(0, 14), textcoords="offset points",
+                        ha="center", fontsize=8, color="dimgray")
+    for b, h, ep in bars_f64:
+        for bar in b:
+            _label_bar(bar, h)
+        if ep is not None and h is not None and math.isfinite(h) and math.isfinite(ep):
+            gap = h - ep
+            sign = "+" if gap >= 0 else ""
+            ax.annotate(f"gap {sign}{gap:.1f}",
+                        xy=(bar.get_x() + bar.get_width() / 2, h),
+                        xytext=(0, 14), textcoords="offset points",
+                        ha="center", fontsize=8, color="#2d7a4f")
 
     ax.set_xticks(x)
-    ax.set_xticklabels(datasets, fontsize=11)
+    ax.set_xticklabels([g[0] for g in groups], fontsize=10)
     ax.set_ylabel("Validation Perplexity (PPL)", fontsize=10)
-    ax.set_title("Euclid vs Hyperbolic PPL Gap: WikiText-2 vs CodeParrot", fontsize=11)
+    ax.set_title(
+        "Euclid vs Hyperbolic PPL Gap: WikiText-2 vs CodeParrot\n"
+        "(Probe 3 adds corrected float64 column — bug fix applied)",
+        fontsize=11,
+    )
     ax.legend(fontsize=9)
     ax.grid(axis="y", alpha=0.3)
     ax.set_ylim(bottom=0)
 
     note = ("WikiText-2 values from Experiment B (hard-coded).\n"
-            "CodeParrot values from Experiment D training.")
+            "CodeParrot values from Experiment D training.\n"
+            "f64 column: Probe 3 rerun with manifold_float64 bug fix.")
     ax.text(0.01, 0.01, note, transform=ax.transAxes,
             fontsize=7, color="gray", va="bottom")
 

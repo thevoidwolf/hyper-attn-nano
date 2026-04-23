@@ -81,21 +81,27 @@ class LorentzPerHeadAttention(nn.Module):
 
     def __init__(
         self,
-        d_model:  int,
-        n_heads:  int,
-        d_head:   int,
-        init_K:   float = -1.0,
+        d_model:        int,
+        n_heads:        int,
+        d_head:         int,
+        curvature_init: float = -1.0,
+        init_K:         float | None = None,   # backward-compat alias
     ):
         """
         Args:
-            d_model : embedding dimension (NOT including the +1 time component)
-            n_heads : number of attention heads
-            d_head  : dimension per head (usually d_model // n_heads)
-            init_K  : starting curvature for all heads (must be negative)
+            d_model        : embedding dimension (NOT including the +1 time component)
+            n_heads        : number of attention heads
+            d_head         : dimension per head (usually d_model // n_heads)
+            curvature_init : starting curvature for all heads (must be negative)
+            init_K         : deprecated alias for curvature_init
         """
         super().__init__()
 
-        assert init_K < 0, f"init_K must be negative, got {init_K}"
+        # Backward-compat: init_K overrides curvature_init when supplied
+        if init_K is not None:
+            curvature_init = init_K
+
+        assert curvature_init < 0, f"curvature_init must be negative, got {curvature_init}"
         assert d_model == n_heads * d_head, (
             f"d_model ({d_model}) must equal n_heads * d_head "
             f"({n_heads} × {d_head} = {n_heads * d_head})"
@@ -117,9 +123,9 @@ class LorentzPerHeadAttention(nn.Module):
         # It's like storing the exponent of a floating-point number — the
         # parameterisation space is unconstrained while the output is bounded.
         #
-        # Initialise so K_h = init_K:
-        #     -exp(log_abs_K) = init_K  →  log_abs_K = log(-init_K)
-        init_log = math.log(-init_K)   # log(1.0) = 0.0 for init_K = -1.0
+        # Initialise so K_h = curvature_init:
+        #     -exp(log_abs_K) = curvature_init  →  log_abs_K = log(-curvature_init)
+        init_log = math.log(-curvature_init)   # log(1.0) = 0.0 for curvature_init = -1.0
         self.log_abs_K = nn.Parameter(torch.full((n_heads,), init_log))
 
         # ── Linear projections (Euclidean, standard) ─────────────────────────

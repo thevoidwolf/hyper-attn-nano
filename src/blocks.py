@@ -132,18 +132,21 @@ class HyperDecoderBlock(nn.Module):
 
     def __init__(
         self,
-        d_model:  int,
-        n_heads:  int,
-        d_ff:     int,
-        d_head:   int | None = None,
-        init_K:   float = -1.0,
+        d_model:        int,
+        n_heads:        int,
+        d_ff:           int,
+        d_head:         int | None = None,
+        curvature_init: float = -1.0,
+        init_K:         float | None = None,   # backward-compat alias
     ):
         super().__init__()
         if d_head is None:
             d_head = d_model // n_heads
+        if init_K is not None:
+            curvature_init = init_K
 
         self.norm1 = LorentzRMSNorm(d_model)
-        self.attn  = LorentzPerHeadAttention(d_model, n_heads, d_head, init_K)
+        self.attn  = LorentzPerHeadAttention(d_model, n_heads, d_head, curvature_init)
         self.norm2 = LorentzRMSNorm(d_model)
         self.ffn   = LorentzFFN(d_model, d_ff)
 

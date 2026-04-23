@@ -1,0 +1,39 @@
+# Preflight 1 — exact Probe 1 reproduction (spec §7.1)
+# DO NOT modify this config — it must exactly reproduce Probe 1's 269.3 best-val PPL.
+# Uses: float32 manifold ops, stochastic 50-batch eval, no final-20% cosine decay.
+# Success criterion: best_val_ppl in [264, 275].
+# Also run full-split eval on the final checkpoint and log as best_val_ppl_fullsplit.
+# This is a gate — do not proceed to main grid if this fails.
+
+model:
+  type:        hyper-fixed
+  d_model:     128
+  n_layers:    4
+  n_heads:     4
+  d_ff:        512
+  max_seq_len: 256
+  vocab_size:  50257
+  curvature:   -10.0
+  curvature_schedule:
+    type:         linear_warmup
+    k_start:      -1.0
+    k_end:        -10.0
+    warmup_steps: 500
+
+training:
+  dataset:       wikitext2
+  data_dir:      data/wikitext2
+  batch_size:    32
+  max_steps:     9000
+  eval_interval: 250
+  log_interval:  50
+  eval_batches:  50
+  lr:            6.0e-4
+  weight_decay:  0.1
+  warmup_steps:  500
+  min_lr_ratio:  0.1
+  seed:          42
+
+run_id:  "preflight_1_probe1_repro"
+log_dir: "logs/experiment_a/preflight_1_probe1_repro"
+notes:   "Preflight 1 — Probe 1 exact reproduction. Float32, stochastic eval, no extra decay."

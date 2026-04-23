@@ -1,0 +1,35 @@
+# Experiment A main grid — Euclidean baseline, scale S1, seed 42
+
+experiment:   experiment_a
+spec_version: "A.1.1"
+scale_tag:    S1
+
+model:
+  type:        euclid
+  d_model:     64
+  n_layers:    4
+  n_heads:     2
+  d_ff:        256
+  max_seq_len: 256
+  vocab_size:  50257
+
+training:
+  dataset:              wikitext2
+  data_dir:             data/wikitext2
+  batch_size:           32
+  max_steps:            9000
+  eval_interval:        250
+  checkpoint_interval:  500
+  log_interval:         50
+  eval_batches:         50
+  full_split_eval:      true
+  lr:                   3.0e-4
+  weight_decay:         0.1
+  warmup_steps:         500
+  min_lr_ratio:         0.1
+  seed:                 42
+
+run_id:         "a_s1_euclid_seed42"
+log_dir:        "logs/experiment_a/a_s1_euclid_seed42"
+checkpoint_dir: "checkpoints/experiment_a/a_s1_euclid_seed42"
+notes:          "Experiment A main grid — Euclidean, scale S1, seed 42."

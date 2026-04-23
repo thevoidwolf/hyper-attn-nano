@@ -1,0 +1,44 @@
+# Experiment A main grid — hyperbolic (hyper-fixed), scale S1, seed 1337
+# n_heads=2 (head_dim=32) — intentional change from old 2M config (spec §2).
+
+experiment:   experiment_a
+spec_version: "A.1.1"
+scale_tag:    S1
+
+model:
+  type:             hyper-fixed
+  d_model:          64
+  n_layers:         4
+  n_heads:          2
+  d_ff:             256
+  max_seq_len:      256
+  vocab_size:       50257
+  manifold_float64: true
+  curvature:        -10.0
+  curvature_schedule:
+    type:         linear_warmup
+    k_start:      -1.0
+    k_end:        -10.0
+    warmup_steps: 500
+
+training:
+  dataset:              wikitext2
+  data_dir:             data/wikitext2
+  batch_size:           32
+  max_steps:            9000
+  eval_interval:        250
+  checkpoint_interval:  500
+  log_interval:         50
+  eval_batches:         50
+  full_split_eval:      true
+  extra_cosine_decay:   true
+  lr:                   6.0e-4
+  weight_decay:         0.1
+  warmup_steps:         500
+  min_lr_ratio:         0.1
+  seed:                 1337
+
+run_id:         "a_s1_hyper_seed1337"
+log_dir:        "logs/experiment_a/a_s1_hyper_seed1337"
+checkpoint_dir: "checkpoints/experiment_a/a_s1_hyper_seed1337"
+notes:          "Experiment A main grid — hyper-fixed K=-10, scale S1, seed 1337. n_heads=2 (head_dim=32) — intentional change from old 2M config (spec §2)."

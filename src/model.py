@@ -63,7 +63,13 @@ class HyperAttnNano(nn.Module):
         Weight tying: lm_head.weight == embed.weight
     """
 
-    def __init__(self, config: dict, init_K: float = -1.0):
+    def __init__(
+        self,
+        config:         dict,
+        fixed_curvature: float = -1.0,
+        init_K:          float | None = None,   # backward-compat alias
+        curvature_init:  float | None = None,   # per-head learnable init (hyper-perhead)
+    ):
         super().__init__()
         d_model     = config['d_model']
         n_layers    = config['n_layers']
@@ -71,6 +77,15 @@ class HyperAttnNano(nn.Module):
         d_ff        = config['d_ff']
         vocab_size  = config['vocab_size']
         d_head      = d_model // n_heads
+
+        # init_K kept for backward compatibility; fixed_curvature takes precedence
+        if init_K is not None:
+            fixed_curvature = init_K
+        self.fixed_curvature = fixed_curvature
+
+        # curvature_init: where per-head curvatures start when learnable.
+        # Falls back to fixed_curvature so hyper-fixed still works correctly.
+        block_init = curvature_init if curvature_init is not None else fixed_curvature
 
         self.d_model    = d_model
         self.n_layers   = n_layers
@@ -81,7 +96,7 @@ class HyperAttnNano(nn.Module):
         nn.init.normal_(self.embed.weight, std=0.02)
 
         self.blocks = nn.ModuleList([
-            HyperDecoderBlock(d_model, n_heads, d_ff, d_head, init_K)
+            HyperDecoderBlock(d_model, n_heads, d_ff, d_head, curvature_init=block_init)
             for _ in range(n_layers)
         ])
 
@@ -89,6 +104,11 @@ class HyperAttnNano(nn.Module):
 
         self.lm_head = nn.Linear(d_model, vocab_size, bias=False)
         self.lm_head.weight = self.embed.weight
+
+        # Enable float64 manifold ops if requested by config (Experiment B2)
+        if config.get("manifold_float64", False):
+            import manifolds as _manifolds
+            _manifolds.MANIFOLD_FLOAT64 = True
 
     def forward(self, input_ids, targets=None):
         B, S = input_ids.shape

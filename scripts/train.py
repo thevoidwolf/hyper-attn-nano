@@ -95,12 +95,23 @@ def save_checkpoint(model, optimizer, step, cfg, log):
 
 
 def save_log(log, cfg):
-    variant = cfg["model"]["type"]
-    path = f"results/logs/{variant}_log.json"
-    os.makedirs(os.path.dirname(path), exist_ok=True)
+    run_id  = cfg.get("run_id", cfg["model"]["type"])
+    log_dir = cfg.get("log_dir", "results/logs/exp_b")
+    path = os.path.join(log_dir, f"{run_id}_log.json")
+    os.makedirs(log_dir, exist_ok=True)
     with open(path, "w") as f:
         json.dump(log, f, indent=2)
     print(f"Log saved → {path}")
+
+
+def open_jsonl_log(cfg) -> tuple[str, "IO"]:
+    """Open JSONL log file. Uses log_dir from config if present."""
+    run_id  = cfg.get("run_id", cfg["model"]["type"])
+    log_dir = cfg.get("log_dir", "results/logs/exp_b")
+    path = os.path.join(log_dir, f"{run_id}_train.jsonl")
+    os.makedirs(log_dir, exist_ok=True)
+    f = open(path, "w")
+    return path, f
 
 
 # ---------------------------------------------------------------------------
@@ -137,12 +148,15 @@ def main():
         k: cfg["model"][k]
         for k in ["d_model", "n_layers", "n_heads", "d_ff", "max_seq_len", "vocab_size"]
     }
-    init_K = cfg["model"].get("init_K", -1.0)
+    init_K         = cfg["model"].get("init_K", -1.0)
+    curvature      = cfg["model"].get("curvature", init_K)
+    curvature_init = cfg["model"].get("curvature_init", None)
+    run_id         = cfg.get("run_id", model_type)
 
     if model_type == "euclid":
         model = GPTNano(model_cfg)
     else:
-        model = HyperAttnNano(model_cfg, init_K=init_K)
+        model = HyperAttnNano(model_cfg, fixed_curvature=curvature, curvature_init=curvature_init)
 
     model = model.to(device)
 
@@ -151,6 +165,7 @@ def main():
         for block in model.blocks:
             block.attn.log_abs_K.requires_grad_(False)
         print("  hyper-fixed: log_abs_K frozen (curvature will not be learned)")
+        print(f"[CONFIG] Fixed curvature K = {curvature}")
 
     param_count = sum(p.numel() for p in model.parameters())
     print(f"  Parameters: {param_count:,}")
@@ -174,6 +189,11 @@ def main():
         f"  Dataset: {tcfg['dataset']}  "
         f"({len(train_data):,} train tokens, {len(val_data):,} val tokens)"
     )
+
+    # Open JSONL log for incremental per-eval writing
+    jsonl_path, jsonl_file = open_jsonl_log(cfg)
+    last_train_loss: float = 0.0
+    last_grad_norm:  float = 0.0
 
     # ── Optimiser ──────────────────────────────────────────────────────────
     optimizer = torch.optim.AdamW(
@@ -219,6 +239,16 @@ def main():
             )
             print(f"step {step:6d} | val loss {val_loss:.4f} | ppl {perplexity:.1f}")
 
+            # Write incremental JSONL record
+            import json as _json
+            jsonl_file.write(_json.dumps({
+                "step":       step,
+                "train_loss": last_train_loss,
+                "val_ppl":    perplexity,
+                "grad_norm":  last_grad_norm,
+            }) + "\n")
+            jsonl_file.flush()
+
             # Curvature snapshot (HyperAttnNano only)
             if hasattr(model, "get_curvatures"):
                 curvs = model.get_curvatures()
@@ -237,20 +267,34 @@ def main():
         if use_amp:
             with torch.amp.autocast("cuda"):
                 logits, loss = model(x, y)
+            if not torch.isfinite(loss):
+                print(f"[WARN] Non-finite loss at step {step}: {loss.item()}. Saving checkpoint and stopping.")
+                save_checkpoint(model, optimizer, step, cfg, log)
+                break
             scaler.scale(loss).backward()
             scaler.unscale_(optimizer)
             grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+            if grad_norm.item() > 1000.0:
+                print(f"[WARN] High grad norm at step {step}: {grad_norm.item():.1f}")
             scaler.step(optimizer)
             scaler.update()
         else:
             logits, loss = model(x, y)
+            if not torch.isfinite(loss):
+                print(f"[WARN] Non-finite loss at step {step}: {loss.item()}. Saving checkpoint and stopping.")
+                save_checkpoint(model, optimizer, step, cfg, log)
+                break
             loss.backward()
             grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+            if grad_norm.item() > 1000.0:
+                print(f"[WARN] High grad norm at step {step}: {grad_norm.item():.1f}")
             optimizer.step()
 
         optimizer.zero_grad(set_to_none=True)
         scheduler.step()
 
+        last_train_loss = loss.item()
+        last_grad_norm  = grad_norm.item()
         log["train_loss"].append(
             {"step": step, "loss": loss.item(), "grad_norm": grad_norm.item()}
         )

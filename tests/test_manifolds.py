@@ -62,16 +62,22 @@ class TestRoundTrip:
  
     @pytest.mark.parametrize("K", K_VALUES)
     def test_round_trip_larger_norms(self, K):
-        """Larger norms — tests stability away from origin."""
+        """Norms away from origin, kept below angle clamp threshold.
+
+        With MAX_ANGLE=10 in manifolds.py, vectors must satisfy
+        sqrt(-K) * norm(v) < 10 to be round-trippable. For K=-5
+        (the most demanding K value here) that means norm < 4.47.
+        Using * 0.5 gives typical norm ≈ 2.8 for d=32, angle ≈ 6.3. ✓
+        """
         torch.manual_seed(7)
-        v       = torch.randn(8, 32) * 2.0
+        v       = torch.randn(8, 32) * 0.5
         x       = exp_map_origin(v, K)
         v_back  = log_map_origin(x, K)
         max_err = (v - v_back).abs().max().item()
- 
+
         # Allow slightly looser tolerance for larger norms
         assert max_err < 1e-3, (
-            f"Round-trip error {max_err:.2e} with large norms for K={K}"
+            f"Round-trip error {max_err:.2e} with larger norms for K={K}"
         )
  
     @pytest.mark.parametrize("K", K_VALUES)

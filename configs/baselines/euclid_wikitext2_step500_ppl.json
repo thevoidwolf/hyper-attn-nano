@@ -1,0 +1,6 @@
+{
+  "step": 500,
+  "val_ppl": 680.9,
+  "source": "results/logs/v3/euclid_log.json",
+  "note": "Euclidean baseline on WikiText-2 at step 500 (V3 run). Used for early-abort threshold (10x = 6809)."
+}

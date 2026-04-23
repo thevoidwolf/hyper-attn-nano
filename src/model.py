@@ -19,8 +19,17 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from manifolds import exp_map_origin, log_map_origin
-from attention import EuclideanAttention, _causal_mask
+from attention import EuclideanAttention, LorentzScoreOnlyAttention, _causal_mask
 from blocks    import HyperDecoderBlock, LorentzRMSNorm  # noqa: F401
+
+
+def _manifolds_already_float64() -> bool:
+    """Check if manifolds.MANIFOLD_FLOAT64 is already True (from a prior model init)."""
+    try:
+        import manifolds as _m
+        return _m.MANIFOLD_FLOAT64
+    except Exception:
+        return False
 
 # ---------------------------------------------------------------------------
 # Configs
@@ -109,6 +118,24 @@ class HyperAttnNano(nn.Module):
         if config.get("manifold_float64", False):
             import manifolds as _manifolds
             _manifolds.MANIFOLD_FLOAT64 = True
+            import warnings as _warnings
+            _warnings.warn(
+                "[MODEL] manifold_float64=True: all manifold ops will run in float64. "
+                "This may slow training but improves numerical precision at high curvature.",
+                UserWarning,
+                stacklevel=2,
+            )
+        elif _manifolds_already_float64():
+            # Flag was not set in config but MANIFOLD_FLOAT64 is already True (e.g., previous
+            # model in the same process). This is a misconfiguration — warn explicitly.
+            import warnings as _warnings
+            _warnings.warn(
+                "[MODEL] manifold_float64 is NOT set in config, but manifolds.MANIFOLD_FLOAT64 "
+                "is True from a previous model instantiation. Manifold ops will still run in "
+                "float64. Set manifold_float64: true in config to suppress this warning.",
+                UserWarning,
+                stacklevel=2,
+            )
 
     def forward(self, input_ids, targets=None):
         B, S = input_ids.shape
@@ -214,4 +241,104 @@ class GPTNano(nn.Module):
         return logits, loss
 
     def get_curvatures(self):
+        return {}
+
+
+# ---------------------------------------------------------------------------
+# ScoresOnlyNano -- Euclidean architecture with Lorentz attention scores
+# ---------------------------------------------------------------------------
+
+class _ScoresOnlyDecoderBlock(nn.Module):
+    """
+    Decoder block identical to _EuclideanDecoderBlock except the attention
+    module uses LorentzScoreOnlyAttention instead of EuclideanAttention.
+    FFN and residuals are unchanged Euclidean.
+    """
+
+    def __init__(self, d_model: int, n_heads: int, d_ff: int, d_head: int,
+                 curvature_init: float = -1.0):
+        super().__init__()
+        self.norm1 = _RMSNorm(d_model)
+        self.attn  = LorentzScoreOnlyAttention(d_model, n_heads, d_head,
+                                               curvature_init=curvature_init)
+        self.norm2 = _RMSNorm(d_model)
+        self.ffn   = _EuclideanFFN(d_model, d_ff)
+
+    def forward(self, x, mask=None):
+        x = x + self.attn(self.norm1(x), mask)
+        x = x + self.ffn(self.norm2(x))
+        return x
+
+
+class ScoresOnlyNano(nn.Module):
+    """
+    Decoder-only LM with Lorentz-score attention but Euclidean everything else.
+
+    Architecture:
+        1. Token embedding  ->  (B, S, d_model) Euclidean
+        2. N x _ScoresOnlyDecoderBlock (Lorentz Q/K scores, Euclidean V/FFN)
+        3. _RMSNorm
+        4. lm_head          ->  (B, S, vocab_size) logits
+
+    No exp_map / log_map at the model level — the manifold ops are confined
+    inside LorentzScoreOnlyAttention's score computation only.
+
+    Config keys: same as GPTNano (d_model, n_layers, n_heads, d_ff,
+                                  max_seq_len, vocab_size)
+    """
+
+    def __init__(
+        self,
+        config:         dict,
+        fixed_curvature: float = -1.0,
+        init_K:          float | None = None,   # backward-compat alias
+    ):
+        super().__init__()
+        d_model    = config['d_model']
+        n_layers   = config['n_layers']
+        n_heads    = config['n_heads']
+        d_ff       = config['d_ff']
+        vocab_size = config['vocab_size']
+        d_head     = d_model // n_heads
+
+        if init_K is not None:
+            fixed_curvature = init_K
+
+        self.d_model         = d_model
+        self.n_layers        = n_layers
+        self.n_heads         = n_heads
+        self.vocab_size      = vocab_size
+        self.fixed_curvature = fixed_curvature
+
+        self.embed = nn.Embedding(vocab_size, d_model)
+        nn.init.normal_(self.embed.weight, std=0.02)
+
+        self.blocks = nn.ModuleList([
+            _ScoresOnlyDecoderBlock(d_model, n_heads, d_ff, d_head,
+                                    curvature_init=fixed_curvature)
+            for _ in range(n_layers)
+        ])
+
+        self.norm    = _RMSNorm(d_model)
+        self.lm_head = nn.Linear(d_model, vocab_size, bias=False)
+        self.lm_head.weight = self.embed.weight
+
+    def forward(self, input_ids, targets=None):
+        B, S   = input_ids.shape
+        x      = self.embed(input_ids).float()
+        mask   = _causal_mask(S, input_ids.device)
+        for block in self.blocks:
+            x = block(x, mask)
+        x      = self.norm(x)
+        logits = self.lm_head(x)
+        loss   = None
+        if targets is not None:
+            loss = F.cross_entropy(logits.view(-1, self.vocab_size), targets.view(-1))
+        return logits, loss
+
+    def get_curvatures(self):
+        """Return current curvature from the first block (all share the same K)."""
+        if self.blocks:
+            k = self.blocks[0].attn.K.item()
+            return {"shared": k}
         return {}

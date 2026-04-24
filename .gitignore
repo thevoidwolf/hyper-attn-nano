@@ -11,6 +11,12 @@ data/
 
 # Model checkpoints (large binary files — not tracked)
 results/checkpoints/
+checkpoints/
+*.pt
+
+# Experiment logs and analysis (large, regeneratable)
+logs/
+analysis/
 
 # Windows Zone Identifier artifacts
 *.Zone.Identifier

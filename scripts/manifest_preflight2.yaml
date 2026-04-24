@@ -1,0 +1,10 @@
+# Preflight 2 manifest — K transfer check at S1 and S5 (spec §7.2)
+# Run after Preflight 1 and 1b both pass.
+# Review results before firing the main grid — see §7.2 decision rules.
+
+- configs/experiment_a/preflight_2_s1_k5_seed42.yaml
+- configs/experiment_a/preflight_2_s1_k10_seed42.yaml
+- configs/experiment_a/preflight_2_s1_k15_seed42.yaml
+- configs/experiment_a/preflight_2_s5_k5_seed42.yaml
+- configs/experiment_a/preflight_2_s5_k10_seed42.yaml
+- configs/experiment_a/preflight_2_s5_k15_seed42.yaml

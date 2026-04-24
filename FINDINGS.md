@@ -1,6 +1,6 @@
-# HyperAttn-Nano — Findings
+# HyperAttn-Nano - Findings
 
-This document is the full write-up of the experiment: what we tested, how we tested it, what we found, and what it means.
+This document is the full write-up of the experiment: what I tested, how I tested it, what I found, and what it means.
 
 ---
 
@@ -19,7 +19,7 @@ The long-term motivation was an order-of-magnitude improvement in compute or mem
 
 HELM (NeurIPS 2025) established that fully hyperbolic decoder-only LLMs are viable at scale. Its attention mechanism uses a *fixed* curvature across all heads. The curvature diversity in HELM lives in the FFN layer (MoE experts), not in attention.
 
-This experiment tests whether per-head learnable curvature in the attention mechanism itself provides an additional benefit — and whether the learned curvature values are interpretable.
+This experiment tests whether per-head learnable curvature in the attention mechanism itself provides an additional benefit - and whether the learned curvature values are interpretable.
 
 ---
 
@@ -41,13 +41,13 @@ In `hyper-perhead`, each head has its own scalar `log_abs_K` parameter initialis
 
 **Float32 stability:** The angle fed into cosh/sinh is `√(-K) · ‖v‖`. Float32 loses the identity `cosh² − sinh² = 1` for angles above ~4, causing manifold constraint violations. Fixed by initialising `LorentzRMSNorm` scale to `1/√d_model` (not ones) and using `std=0.02` embedding initialisation.
 
-**log_map formula:** The correct arcosh argument is `√(-K) · x₀`, not `-K · x₀`. The latter is only correct at K=-1 and fails silently for other curvatures — producing wrong geometry with no error. This was found and fixed during development.
+**log_map formula:** The correct arcosh argument is `√(-K) · x₀`, not `-K · x₀`. The latter is only correct at K=-1 and fails silently for other curvatures - producing wrong geometry with no error. This was found and fixed during development.
 
 ---
 
 ## Experimental versions
 
-### V1 — Initial run (5000 steps, LR=3e-4 all variants)
+### V1 - Initial run (5000 steps, LR=3e-4 all variants)
 
 | Variant | Val PPL | Mean grad norm | Steps clipped |
 |---|---|---|---|
@@ -55,13 +55,13 @@ In `hyper-perhead`, each head has its own scalar `log_abs_K` parameter initialis
 | hyper-fixed | 451 | 0.544 | 17 / 5000 (<1%) |
 | hyper-perhead | 450 | 0.542 | 15 / 5000 (<1%) |
 
-**Problem identified:** euclid was gradient-clipped 62% of steps at norm ~1.0. Hyperbolic variants ran at mean norm ~0.54 — roughly half the update magnitude per step. The comparison was not fair; hyperbolic variants received approximately half the effective gradient signal.
+**Problem identified:** euclid was gradient-clipped 62% of steps at norm ~1.0. Hyperbolic variants ran at mean norm ~0.54 - roughly half the update magnitude per step. The comparison was not fair; hyperbolic variants received approximately half the effective gradient signal.
 
 **Finding:** Per-head curvature stratification already visible. Layer 2 most curved (K mean -1.140), layer 1 flattest (K mean -1.087). Spread of 0.117 across all 16 heads.
 
 ---
 
-### V2 — Gradient scale correction (5000 steps, hyper LR=6e-4, warmup=300)
+### V2 - Gradient scale correction (5000 steps, hyper LR=6e-4, warmup=300)
 
 LR for hyperbolic variants raised to 6e-4 to match euclid's effective update scale.
 
@@ -71,13 +71,13 @@ LR for hyperbolic variants raised to 6e-4 to match euclid's effective update sca
 | hyper-fixed | 323 | 0.566 | 0.1% |
 | hyper-perhead | 321 | 0.569 | 0.1% |
 
-Gap closed from ~174 PPL to ~44 PPL. `hyper-perhead` beat `hyper-fixed` by 2.4 PPL — first confirmation of the per-head hypothesis.
+Gap closed from ~174 PPL to ~44 PPL. `hyper-perhead` beat `hyper-fixed` by 2.4 PPL - first confirmation of the per-head hypothesis.
 
-**Problem identified:** Grad norm imbalance persisted (euclid ~1.03, hyper ~0.57 — 1.8× gap). At the same step count, euclid still received more total gradient signal.
+**Problem identified:** Grad norm imbalance persisted (euclid ~1.03, hyper ~0.57 - 1.8× gap). At the same step count, euclid still received more total gradient signal.
 
 ---
 
-### V3 — Total gradient signal correction (9000 steps, hyper LR=6e-4, warmup=500)
+### V3 - Total gradient signal correction (9000 steps, hyper LR=6e-4, warmup=500)
 
 Step count for hyperbolic variants extended to 9000 (= 5000 × 1.026/0.569 ≈ 9000), giving the same total gradient signal as euclid V2 at 5000 steps.
 
@@ -87,7 +87,7 @@ Step count for hyperbolic variants extended to 9000 (= 5000 × 1.026/0.569 ≈ 9
 | hyper-fixed | 9000 | 311 | 0.87 | 1.6% |
 | hyper-perhead | 9000 | 312 | 0.86 | 3.7% |
 
-The hyperbolic variants improved further but did not close the gap to euclid (~34 PPL remaining). The V2 advantage of `hyper-perhead` over `hyper-fixed` (2.4 PPL) reversed to a 1.2 PPL deficit — within noise range; neither direction is a reliable signal at this scale.
+The hyperbolic variants improved further but did not close the gap to euclid (~34 PPL remaining). The V2 advantage of `hyper-perhead` over `hyper-fixed` (2.4 PPL) reversed to a 1.2 PPL deficit - within noise range; neither direction is a reliable signal at this scale.
 
 **Final curvature state (hyper-perhead V3):**
 
@@ -102,7 +102,7 @@ Most curved: `layer_2_head_2` at K=-1.239. Flattest: `layer_1_head_0` at K=-1.06
 
 ---
 
-## Experiment B — Forced high curvature sweep
+## Experiment B - Forced high curvature sweep
 
 ### Objective
 
@@ -130,7 +130,7 @@ The K=-50 reversal is caused by angle clamping, not by the geometry being unhelp
 
 ---
 
-## Experiment B2 — Float64 high-curvature probe
+## Experiment B2 - Float64 high-curvature probe
 
 ### Objective
 
@@ -144,7 +144,7 @@ The replication check (`b2_k10`) must match Experiment B's K=-10 result (283.7 P
 |--------|---------|-----------|------|
 | exp_b2_k10 | -10.0 | 301.4 | **17.7 PPL worse than B k10** |
 
-Sweep halted after replication check failed. `b2_k10` (float64) gave 301.4 PPL versus `b_k10` (float32) at 283.7 PPL — a regression of 17.7 PPL, far above the 2.0 PPL tolerance.
+Sweep halted after replication check failed. `b2_k10` (float64) gave 301.4 PPL versus `b_k10` (float32) at 283.7 PPL - a regression of 17.7 PPL, far above the 2.0 PPL tolerance.
 
 ### Finding
 
@@ -156,7 +156,7 @@ The higher-K sweep (K=-20, K=-50, K=-100) was not run because the B2 replication
 
 ---
 
-## Experiment D — Hierarchical data probe (CodeParrot)
+## Experiment D - Hierarchical data probe (CodeParrot)
 
 ### Objective
 
@@ -175,7 +175,7 @@ Dataset: `codeparrot/codeparrot-clean` (Python GitHub files, deduplicated). Toke
 
 ### Analysis
 
-**1. Gap direction — wider on code, not narrower.**
+**1. Gap direction - wider on code, not narrower.**
 The euclid–hyperbolic gap grew on hierarchical data. Using the fixed K=-10 float32 baseline for the hyperbolic column:
 
 | Dataset | Euclid PPL | Hyper K=-10 PPL | Gap (hyper − euclid) |
@@ -185,15 +185,15 @@ The euclid–hyperbolic gap grew on hierarchical data. Using the fixed K=-10 flo
 
 The hypothesis was wrong: code's tree structure does not give hyperbolic attention a smaller disadvantage. It gives it a larger one. Possible explanation: code's rigid syntactic structure allows Euclidean attention to learn near-deterministic attention patterns (e.g., always attend to the enclosing function definition), which suits the inductive bias of flat geometry. Hyperbolic attention penalises this kind of sharp, non-hierarchical pattern.
 
-**2. Float64 overfitting resolution — data-dependent as hypothesised.**
-Float32 and float64 give identical PPL on CodeParrot (39.9 vs 39.9). On WikiText-2, float64 was 17.7 PPL worse. This confirms the B2 overfitting was dataset-dependent: code's deeper hierarchical structure prevents the geometry from memorising training patterns. However, it does not improve performance either — float64 on code is no better than float32.
+**2. Float64 overfitting resolution - data-dependent as hypothesised.**
+Float32 and float64 give identical PPL on CodeParrot (39.9 vs 39.9). On WikiText-2, float64 was 17.7 PPL worse. This confirms the B2 overfitting was dataset-dependent: code's deeper hierarchical structure prevents the geometry from memorising training patterns. However, it does not improve performance either - float64 on code is no better than float32.
 
-**3. Per-head curvature from K=-10 init — better than fixed, still far from euclid.**
-`exp_d_perhead_k10` (initialised at K=-10, learnable) converged to K≈-6 across all heads and reached 34.9 PPL — 5.0 PPL better than fixed K=-10 (39.9 PPL). The model found that K=-6 is a better operating point on CodeParrot than K=-10. This is the first experiment where per-head curvature clearly and consistently outperforms a fixed-curvature baseline.
+**3. Per-head curvature from K=-10 init - better than fixed, still far from euclid.**
+`exp_d_perhead_k10` (initialised at K=-10, learnable) converged to K≈-6 across all heads and reached 34.9 PPL - 5.0 PPL better than fixed K=-10 (39.9 PPL). The model found that K=-6 is a better operating point on CodeParrot than K=-10. This is the first experiment where per-head curvature clearly and consistently outperforms a fixed-curvature baseline.
 
 The gap to euclid remains large: 8.7 PPL (34.9 vs 26.2). Even with learnable per-head curvatures finding an optimal K, hyperbolic attention trails the Euclidean baseline by a substantial margin on code.
 
-**4. Curvature convergence pattern on code — stratification disappears.**
+**4. Curvature convergence pattern on code - stratification disappears.**
 Per-head curvatures initialised at K=-10 converged near K≈-6, with all layers reaching similar mean curvatures:
 
 | | Layer 0 | Layer 1 | Layer 2 | Layer 3 |
@@ -201,7 +201,7 @@ Per-head curvatures initialised at K=-10 converged near K≈-6, with all layers 
 | Mean K | -6.10 | -6.14 | -6.05 | -6.15 |
 | Head range | -5.85 to -6.44 | -6.03 to -6.30 | -5.78 to -6.29 | -6.03 to -6.26 |
 
-The layer stratification pattern from V3 (penultimate layer most curved, first layer flattest) is absent. All layers converged to approximately the same mean curvature. The total spread across all 16 heads is 0.66 — larger than V3 (0.175) but with no layer-level structure.
+The layer stratification pattern from V3 (penultimate layer most curved, first layer flattest) is absent. All layers converged to approximately the same mean curvature. The total spread across all 16 heads is 0.66 - larger than V3 (0.175) but with no layer-level structure.
 
 This suggests two possible interpretations: (a) the V3 stratification emerged specifically from proximity to the K=-1 initialisation, where the gradient landscape has different curvature-specific dynamics, or (b) code's uniform per-layer hierarchical depth (consistent scope nesting across all transformer layers) does not create the differential curvature pressure that WikiText-2's varied syntax produced.
 
@@ -218,16 +218,7 @@ Across all three V1/V2/V3 experiment versions, `hyper-perhead` consistently deve
 
 This pattern is stable across different learning rates and step counts. The model consistently decided that penultimate-layer attention should be most hierarchical, and did so independently across three separate training runs with different hyperparameters.
 
-**This pattern does not persist on code.** On CodeParrot (Experiment D), per-head curvatures initialised at K=-10 converged to a flat distribution with no layer-level structure — all layers near K≈-6, spread 0.66 but uniformly distributed. Whether the stratification persists on WikiText-2 when initialised at K=-10 (rather than K=-1) remains untested.
-
-Across all three experiment versions, `hyper-perhead` consistently developed the same pattern:
-
-- **Layer 2 (penultimate) was always the most curved layer** (V1: -1.140, V2: -1.143, V3: mean -1.166)
-- **Layer 1 was always the flattest layer** (V1: -1.087, V2: -1.099, V3: mean -1.102)
-- The same head (`layer_2_head_2`) was the most curved single head in every version
-- The spread grew with each version: 0.117 → 0.145 → 0.175
-
-This pattern is stable across different learning rates and step counts. The model consistently decided that penultimate-layer attention should be most hierarchical, and did so independently across three separate training runs with different hyperparameters.
+**This pattern does not persist on code.** On CodeParrot (Experiment D), per-head curvatures initialised at K=-10 converged to a flat distribution with no layer-level structure - all layers near K≈-6, spread 0.66 but uniformly distributed. Whether the stratification persists on WikiText-2 when initialised at K=-10 (rather than K=-1) remains untested.
 
 This has not been documented before. HELM uses fixed curvature in attention, so per-head specialisation has never been measurable in a prior published system.
 
@@ -239,17 +230,17 @@ This has not been documented before. HELM uses fixed curvature in attention, so 
 
 Hyperbolic attention with per-head learnable curvature does not outperform Euclidean attention at this scale, across two datasets. The gap persists after gradient-equivalent training, stronger curvature (K=-10), and the use of hierarchically-structured data.
 
-- **V3 (WikiText-2, K=-1):** hyper-perhead 311.8 PPL vs euclid 277.1 PPL — gap of 34.7 PPL
-- **Experiment B (WikiText-2, K=-10):** hyper-fixed 283.7 PPL vs euclid 277.1 PPL — gap narrowed to 6.6 PPL
-- **Experiment D (CodeParrot, K=-10):** best hyperbolic (perhead) 34.9 PPL vs euclid 26.2 PPL — gap of 8.7 PPL
+- **V3 (WikiText-2, K=-1):** hyper-perhead 311.8 PPL vs euclid 277.1 PPL - gap of 34.7 PPL
+- **Experiment B (WikiText-2, K=-10):** hyper-fixed 283.7 PPL vs euclid 277.1 PPL - gap narrowed to 6.6 PPL
+- **Experiment D (CodeParrot, K=-10):** best hyperbolic (perhead) 34.9 PPL vs euclid 26.2 PPL - gap of 8.7 PPL
 
-Per-head curvature does not consistently beat fixed curvature at K=-1 (V2 and V3 disagreed). At K=-10 on code, per-head (34.9) is clearly better than fixed (39.9) by 5.0 PPL — but still far from euclid (26.2).
+Per-head curvature does not consistently beat fixed curvature at K=-1 (V2 and V3 disagreed). At K=-10 on code, per-head (34.9) is clearly better than fixed (39.9) by 5.0 PPL - but still far from euclid (26.2).
 
 ### Why the gap persists
 
 Three compounding factors:
 
-**1. Scale mismatch.** Hyperbolic geometry's core advantage — efficiently embedding exponential tree structure — only pays off when the model has enough capacity and the data has enough hierarchical depth to use it. NANO_CONFIG (128-dimensional, 4 layers) is too small for this to matter regardless of dataset.
+**1. Scale mismatch.** Hyperbolic geometry's core advantage - efficiently embedding exponential tree structure - only pays off when the model has enough capacity and the data has enough hierarchical depth to use it. NANO_CONFIG (128-dimensional, 4 layers) is too small for this to matter regardless of dataset.
 
 **2. The gap is data-structure-dependent, but in the wrong direction.** WikiText-2 gap (6.6 PPL at K=-10) is smaller than the CodeParrot gap (8.7–13.7 PPL). Hierarchically-structured code does not help hyperbolic attention close the gap; it widens it. This may be because code's rigid syntactic patterns allow Euclidean attention to learn near-deterministic rules, while hyperbolic geometry penalises non-hierarchical structure.
 
@@ -267,16 +258,16 @@ The "order-of-magnitude efficiency" goal would require showing equivalent qualit
 
 **3. Stratification does not persist on code.** The V3 per-layer curvature pattern (penultimate layer most curved, first layer flattest) disappears entirely when training on CodeParrot. On code, all layers converge to a uniform K≈-6. The pattern appears to be specific to the WikiText-2 training distribution and K=-1 initialisation regime.
 
-**4. Per-head curvature finds K=-6 on code.** Initialised at K=-10, per-head curvatures relax to K≈-6 and gain 5 PPL over fixed K=-10 on code. The model independently found that K=-6 is a better operating point than K=-10 on hierarchical data — demonstrating that learnable curvature provides a genuine search advantage over fixed curvature when initialised in a useful regime.
+**4. Per-head curvature finds K=-6 on code.** Initialised at K=-10, per-head curvatures relax to K≈-6 and gain 5 PPL over fixed K=-10 on code. The model independently found that K=-6 is a better operating point than K=-10 on hierarchical data - demonstrating that learnable curvature provides a genuine search advantage over fixed curvature when initialised in a useful regime.
 
 ---
 
 ## Limitations
 
 - Single architecture family and scale; all results at NANO_CONFIG (128-dimensional, 4 layers)
-- Two datasets tested (WikiText-2, CodeParrot) — both English-language; no non-English or non-text data
+- Two datasets tested (WikiText-2, CodeParrot) - both English-language; no non-English or non-text data
 - No parameter-efficiency comparison (same parameter count throughout)
-- Float64 curvature sweep (K=-20, K=-50, K=-100) was not completed — only K=-10 float64 on WikiText-2 was tested
+- Float64 curvature sweep (K=-20, K=-50, K=-100) was not completed - only K=-10 float64 on WikiText-2 was tested
 - Training dynamics not fully equalised: grad norm gap persisted through V3 and Experiment D
 - The V3 WikiText-2 stratification pattern has not been tested at K=-10 initialisation; it may be an artefact of proximity to K=-1
 - Per-head vs fixed curvature comparison at K=-1 is noisy (V2 and V3 disagreed); the K=-10 per-head advantage on code is clearer but comes from a single run

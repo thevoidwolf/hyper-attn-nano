@@ -1,0 +1,54 @@
+# Experiment A main grid manifest — run AFTER all preflights pass and K is locked.
+# Orchestrator skips any run that already has logs/experiment_a/{run_id}/summary.json
+# with status: completed. Safe to re-run if interrupted.
+#
+# Night 1: S2 both variants all 3 seeds
+# (a_s2_hyper_seed42 may already be done from Preflight 1b — orchestrator will skip it)
+
+- configs/experiment_a/a_s2_euclid_seed42.yaml
+- configs/experiment_a/a_s2_euclid_seed1337.yaml
+- configs/experiment_a/a_s2_euclid_seed2718.yaml
+- configs/experiment_a/a_s2_hyper_seed42.yaml
+- configs/experiment_a/a_s2_hyper_seed1337.yaml
+- configs/experiment_a/a_s2_hyper_seed2718.yaml
+
+# Night 2: S1 and S3 both variants all 3 seeds
+
+- configs/experiment_a/a_s1_euclid_seed42.yaml
+- configs/experiment_a/a_s1_euclid_seed1337.yaml
+- configs/experiment_a/a_s1_euclid_seed2718.yaml
+- configs/experiment_a/a_s1_hyper_seed42.yaml
+- configs/experiment_a/a_s1_hyper_seed1337.yaml
+- configs/experiment_a/a_s1_hyper_seed2718.yaml
+- configs/experiment_a/a_s3_euclid_seed42.yaml
+- configs/experiment_a/a_s3_euclid_seed1337.yaml
+- configs/experiment_a/a_s3_euclid_seed2718.yaml
+- configs/experiment_a/a_s3_hyper_seed42.yaml
+- configs/experiment_a/a_s3_hyper_seed1337.yaml
+- configs/experiment_a/a_s3_hyper_seed2718.yaml
+
+# Night 3: S4 both variants all 3 seeds
+
+- configs/experiment_a/a_s4_euclid_seed42.yaml
+- configs/experiment_a/a_s4_euclid_seed1337.yaml
+- configs/experiment_a/a_s4_euclid_seed2718.yaml
+- configs/experiment_a/a_s4_hyper_seed42.yaml
+- configs/experiment_a/a_s4_hyper_seed1337.yaml
+- configs/experiment_a/a_s4_hyper_seed2718.yaml
+
+# Night 4: S5 both variants all 3 seeds
+
+- configs/experiment_a/a_s5_euclid_seed42.yaml
+- configs/experiment_a/a_s5_euclid_seed1337.yaml
+- configs/experiment_a/a_s5_euclid_seed2718.yaml
+- configs/experiment_a/a_s5_hyper_seed42.yaml
+- configs/experiment_a/a_s5_hyper_seed1337.yaml
+- configs/experiment_a/a_s5_hyper_seed2718.yaml
+
+# CodeParrot confirmation — add after main grid completes (crossover scale TBD)
+# - configs/experiment_a/codeparrot_sX_euclid_seed42.yaml
+# - configs/experiment_a/codeparrot_sX_euclid_seed1337.yaml
+# - configs/experiment_a/codeparrot_sX_euclid_seed2718.yaml
+# - configs/experiment_a/codeparrot_sX_hyper_seed42.yaml
+# - configs/experiment_a/codeparrot_sX_hyper_seed1337.yaml
+# - configs/experiment_a/codeparrot_sX_hyper_seed2718.yaml

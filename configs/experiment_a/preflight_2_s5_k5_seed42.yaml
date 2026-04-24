@@ -1,0 +1,43 @@
+# Preflight 2 — K transfer check at S5, K=-5 (spec §7.2)
+
+experiment:   experiment_a
+spec_version: "A.1.1"
+scale_tag:    S5
+
+model:
+  type:             hyper-fixed
+  d_model:          512
+  n_layers:         4
+  n_heads:          16
+  d_ff:             2048
+  max_seq_len:      256
+  vocab_size:       50257
+  manifold_float64: true
+  curvature:        -5.0
+  curvature_schedule:
+    type:         linear_warmup
+    k_start:      -1.0
+    k_end:        -5.0
+    warmup_steps: 500
+
+training:
+  dataset:              wikitext2
+  data_dir:             data/wikitext2
+  batch_size:           32
+  max_steps:            9000
+  eval_interval:        250
+  checkpoint_interval:  500
+  log_interval:         50
+  eval_batches:         50
+  full_split_eval:      true
+  extra_cosine_decay:   true
+  lr:                   6.0e-4
+  weight_decay:         0.1
+  warmup_steps:         500
+  min_lr_ratio:         0.1
+  seed:                 42
+
+run_id:         "preflight_2_s5_k5_seed42"
+log_dir:        "logs/experiment_a/preflight_2_s5_k5_seed42"
+checkpoint_dir: "checkpoints/experiment_a/preflight_2_s5_k5_seed42"
+notes:          "Preflight 2 — K transfer check at S5, K=-5, seed 42."

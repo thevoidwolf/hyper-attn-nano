@@ -1,9 +1,11 @@
-# Experiment A — Pre-Registration
+# Experiment A - Pre-Registration
+
+> **Final status: archived. Main grid not executed.** Preflights 1, 1b, 2, and 2b completed; Amendment A.1.2 was committed based on preflight findings. The full S1–S5 × 3 seeds × 2 variants main grid was never run. Preflight findings - notably the scale-dependent numerical stability wall at high d_model × |K|, and the confirmation that the eval-method gap is recipe-driven - are summarised in the project [README](README.md). The locked pre-registration below is preserved as-is for transparency and as a starting point for anyone running a similar experiment.
 
 **Spec version:** A.1.1  
 **Committed by:** Voidwolf  
 **Date:** 2026-04-23  
-**Status: LOCKED — do not edit after the first main-grid run begins.**
+**Status: LOCKED - do not edit after the first main-grid run begins.**
 
 ---
 
@@ -103,7 +105,7 @@ The stochastic 50-batch evaluation in the existing repo oversamples tokens (~410
 
 ### 8.3 Secondary finding to watch for
 
-Probe 1's result was achieved with float32 manifold ops. The main grid effectively tests whether adding float64 on top of the warmup recipe helps, hurts, or is neutral at S2. If the main-grid S2/hyperbolic run produces a best-val PPL close to Preflight 1's full-split anchor, float64 contributed little at this scale — itself a finding worth reporting in `decision.md`.
+Probe 1's result was achieved with float32 manifold ops. The main grid effectively tests whether adding float64 on top of the warmup recipe helps, hurts, or is neutral at S2. If the main-grid S2/hyperbolic run produces a best-val PPL close to Preflight 1's full-split anchor, float64 contributed little at this scale - itself a finding worth reporting in `decision.md`.
 
 ---
 
@@ -123,11 +125,11 @@ CodeParrot-clean, run only at the crossover scale identified on WikiText-2 after
 
 ---
 
-*Pre-registration version: A.1.1 — locked at first main-grid run.*
+*Pre-registration version: A.1.1 - locked at first main-grid run.*
 
 ---
 
-## Amendment A.1.2 — Preflight 2 outcomes
+## Amendment A.1.2 - Preflight 2 outcomes
 
 Committed after Preflight 2 (§7.2) and Preflight 2b scouting runs completed,
 prior to main-grid execution. This amendment locks in three decisions that
@@ -143,7 +145,7 @@ in the programme. At S5 (d_model=512, ~12.6M non-embedding body params):
 - K=-5 completed training normally and reached best-val PPL 229.9
 
 At S1 (d_model=64), all three K values completed training and landed
-within a 4.2 PPL band — indistinguishable at single-seed resolution.
+within a 4.2 PPL band - indistinguishable at single-seed resolution.
 
 Grad norms were well within the 1.0 clip at crash time (~0.9–1.1),
 indicating the NaN originates in the forward-pass manifold operations,
@@ -187,7 +189,7 @@ The chosen schedule is locked at main-grid commit time and not
 adjusted during or after the main grid. Seeds 1337 and 2718 at each
 scale use the schedule established here.
 
-### 3. Eval-method question — closed
+### 3. Eval-method question - closed
 
 §17.1 raised the possibility that the 11 PPL gap between Preflight 1
 (stochastic 50-batch, 269.28 best-val) and Preflight 1b (full-split,

@@ -1,0 +1,26 @@
+{
+  "label": "legacy::euclid::ckpt_step4999.pt",
+  "path": "results/checkpoints/euclid/ckpt_step4999.pt",
+  "run_id": "euclid",
+  "step": 4999,
+  "model_type": "euclid",
+  "d_model": 128,
+  "n_layers": 4,
+  "n_heads": 4,
+  "curvature": null,
+  "curvature_schedule": null,
+  "manifold_float64": false,
+  "dataset": "wikitext2",
+  "ood_source": "data/ood/wikitext103_heldout/ood.bin",
+  "status": "ok",
+  "id_val_ppl": 279.9851910808579,
+  "ood_val_ppl": 398.9415322812325,
+  "rare_word_ppl": 5124552.503901197,
+  "long_ctx_ppl": {
+    "256": 279.9851910808579,
+    "512": 290.8227095676722,
+    "1024": 313.24839880703274,
+    "2048": 341.31712251197774,
+    "4096": 374.83068906052654
+  }
+}

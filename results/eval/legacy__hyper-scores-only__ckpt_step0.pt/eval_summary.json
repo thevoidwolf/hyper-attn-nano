@@ -1,0 +1,26 @@
+{
+  "label": "legacy::hyper-scores-only::ckpt_step0.pt",
+  "path": "results/checkpoints/hyper-scores-only/ckpt_step0.pt",
+  "run_id": "probe2_scores_only",
+  "step": 0,
+  "model_type": "hyper-scores-only",
+  "d_model": 128,
+  "n_layers": 4,
+  "n_heads": 4,
+  "curvature": -10.0,
+  "curvature_schedule": null,
+  "manifold_float64": false,
+  "dataset": "wikitext2",
+  "ood_source": "data/ood/wikitext103_heldout/ood.bin",
+  "status": "ok",
+  "id_val_ppl": 51514.66669723719,
+  "ood_val_ppl": 51593.750891249765,
+  "rare_word_ppl": 52508.05466065086,
+  "long_ctx_ppl": {
+    "256": 51514.66669723719,
+    "512": 51535.443932834656,
+    "1024": 51507.81867933463,
+    "2048": 51531.26979593474,
+    "4096": 51537.53440474355
+  }
+}

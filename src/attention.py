@@ -242,11 +242,13 @@ class EuclideanAttention(nn.Module):
         n_heads:  int,
         d_head:   int,
         init_K:   float = -1.0,   # ignored — kept for interface compatibility
+        qk_norm:  bool  = False,
     ):
         super().__init__()
         self.d_model = d_model
         self.n_heads = n_heads
         self.d_head  = d_head
+        self.qk_norm = qk_norm
 
         self.W_q = nn.Linear(d_model, n_heads * d_head, bias=False)
         self.W_k = nn.Linear(d_model, n_heads * d_head, bias=False)
@@ -274,6 +276,14 @@ class EuclideanAttention(nn.Module):
         Q = self.W_q(x).view(B, S, self.n_heads, self.d_head).permute(0, 2, 1, 3)
         K = self.W_k(x).view(B, S, self.n_heads, self.d_head).permute(0, 2, 1, 3)
         V = self.W_v(x).view(B, S, self.n_heads, self.d_head).permute(0, 2, 1, 3)
+
+        if self.qk_norm:
+            # Per-head L2 normalisation of Q and K. Used in PaLM/Llama.
+            # We include this in the Euclidean variant to isolate its effect
+            # from the hyperbolic-geometry contribution of Probe 2, which
+            # also uses QK-norm.
+            Q = Q / Q.norm(dim=-1, keepdim=True).clamp(min=1e-6)
+            K = K / K.norm(dim=-1, keepdim=True).clamp(min=1e-6)
 
         scores = (Q @ K.transpose(-2, -1)) / math.sqrt(self.d_head)
 
@@ -367,42 +377,52 @@ class LorentzScoreOnlyAttention(nn.Module):
         x = x.float()
 
         # ── Step 1: Q / K / V projections (Euclidean) ────────────────────────
-        Q  = self.W_q(x).view(B, S, self.n_heads, self.d_head)   # (B,S,H,Dh)
-        Kp = self.W_k(x).view(B, S, self.n_heads, self.d_head)   # (B,S,H,Dh)
-        V  = self.W_v(x).view(B, S, self.n_heads, self.d_head)   # (B,S,H,Dh)
+        # Force fp32 for the entire Lorentz score computation. Under AMP
+        # autocast, W_q etc. would emit fp16, and at K ≤ ~-2 the exp_map
+        # outputs (cosh(angle)/√|K|) exceed fp16 max (65504), making the
+        # subsequent Q_t @ K_t.T matmul overflow to inf/nan.
+        with torch.amp.autocast("cuda", enabled=False):
+            Q  = self.W_q(x).view(B, S, self.n_heads, self.d_head).float()
+            Kp = self.W_k(x).view(B, S, self.n_heads, self.d_head).float()
+            V  = self.W_v(x).view(B, S, self.n_heads, self.d_head).float()
 
-        # ── Step 2: Lift Q and K to Lorentz manifold ─────────────────────────
-        # All heads share a single curvature K (scalar).
-        K_val  = self.K                          # scalar tensor
-        Q_hyp  = exp_map_batched(Q,  K_val.unsqueeze(0).expand(self.n_heads))   # (B,S,H,Dh+1)
-        K_hyp  = exp_map_batched(Kp, K_val.unsqueeze(0).expand(self.n_heads))   # (B,S,H,Dh+1)
+            # QK unit-normalization per head (PaLM/Llama-style).
+            # Without this, random-init ‖q‖ ≈ √d_head, giving angle = √|K|·‖q‖
+            # = √10·5.6 ≈ 17 at K=-10. cosh/sinh derivatives at angle 17 are
+            # ~2.4e7, exploding the backward pass once curvature warms up past
+            # K=-5. Normalising bounds angle to √|K| ≈ 3.16 at K=-10.
+            Q  = Q  / Q .norm(dim=-1, keepdim=True).clamp(min=1e-6)
+            Kp = Kp / Kp.norm(dim=-1, keepdim=True).clamp(min=1e-6)
 
-        # ── Step 3: Lorentz attention scores ─────────────────────────────────
-        Q_hyp = Q_hyp.permute(0, 2, 1, 3)   # (B, H, S_q, Dh+1)
-        K_hyp = K_hyp.permute(0, 2, 1, 3)   # (B, H, S_k, Dh+1)
-        V     =     V.permute(0, 2, 1, 3)   # (B, H, S,   Dh)
+            # ── Step 2: Lift Q and K to Lorentz manifold ─────────────────────
+            K_val  = self.K                          # scalar tensor (fp32)
+            Q_hyp  = exp_map_batched(Q,  K_val.unsqueeze(0).expand(self.n_heads))
+            K_hyp  = exp_map_batched(Kp, K_val.unsqueeze(0).expand(self.n_heads))
 
-        # Minkowski inner product: <Q_i, K_j>_L = -Q_t·K_t + Q_s·K_s
-        Q_t, Q_s = Q_hyp[..., :1], Q_hyp[..., 1:]   # (B,H,S,1), (B,H,S,Dh)
-        K_t, K_s = K_hyp[..., :1], K_hyp[..., 1:]
+            # ── Step 3: Lorentz attention scores ─────────────────────────────
+            Q_hyp = Q_hyp.permute(0, 2, 1, 3)
+            K_hyp = K_hyp.permute(0, 2, 1, 3)
+            V     =     V.permute(0, 2, 1, 3)
 
-        time_term  = -(Q_t @ K_t.transpose(-2, -1))   # (B,H,S_q,S_k)
-        space_term =   Q_s @ K_s.transpose(-2, -1)    # (B,H,S_q,S_k)
-        lorentz_ip = time_term + space_term
+            # Minkowski inner product: <Q_i, K_j>_L = -Q_t·K_t + Q_s·K_s
+            Q_t, Q_s = Q_hyp[..., :1], Q_hyp[..., 1:]
+            K_t, K_s = K_hyp[..., :1], K_hyp[..., 1:]
 
-        # score = |K| * (-<Q, K>_L) / √d_head
-        abs_K  = self.K.abs().view(1, 1, 1, 1)           # (1,1,1,1)
-        scores = abs_K * (-lorentz_ip) / math.sqrt(self.d_head)   # (B,H,S,S)
+            time_term  = -(Q_t @ K_t.transpose(-2, -1))
+            space_term =   Q_s @ K_s.transpose(-2, -1)
+            lorentz_ip = time_term + space_term
 
-        # ── Step 4: Causal mask ───────────────────────────────────────────────
-        if mask is None:
-            mask = _causal_mask(S, x.device)
-        scores = scores.masked_fill(mask, float('-inf'))
+            abs_K  = self.K.abs().view(1, 1, 1, 1)
+            scores = abs_K * (-lorentz_ip) / math.sqrt(self.d_head)
 
-        # ── Step 5: Softmax + Euclidean V aggregation ─────────────────────────
-        # V path: no manifold operations — just standard weighted sum
-        attn_weights = F.softmax(scores, dim=-1)          # (B,H,S_q,S_k)
-        out = attn_weights @ V                            # (B,H,S_q,Dh)
+            # ── Step 4: Causal mask ──────────────────────────────────────────
+            if mask is None:
+                mask = _causal_mask(S, x.device)
+            scores = scores.masked_fill(mask, float('-inf'))
+
+            # ── Step 5: Softmax + Euclidean V aggregation ────────────────────
+            attn_weights = F.softmax(scores, dim=-1)
+            out = attn_weights @ V
 
         # ── Step 6: Concat heads → project to d_model ────────────────────────
         out = out.permute(0, 2, 1, 3).contiguous()       # (B,S,H,Dh)

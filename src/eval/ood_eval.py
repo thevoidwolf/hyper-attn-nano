@@ -74,12 +74,20 @@ def _eval_ppl_on_tokens(
     n_batches  = 0
     per_token_losses: list[tuple[int, float]] = [] if per_token else None  # type: ignore
 
-    n_full = (len(tokens) - block_size) // batch_size
+    # Non-overlapping ordered windows: each batch covers batch_size * block_size
+    # *distinct* tokens. n_full = number of complete non-overlapping batches.
+    # Earlier versions advanced starts by 1 token between windows within a batch
+    # and by batch_size tokens between batches, so 50 batches covered only
+    # ~1856 tokens of a 248K val set — making id_val_ppl meaningless.
+    stride_within_batch = block_size
+    stride_between_batches = batch_size * block_size
+    n_full = len(tokens) // stride_between_batches
     if max_batches is not None:
         n_full = min(n_full, max_batches)
 
     for batch_idx in range(n_full):
-        starts = [batch_idx * batch_size + i for i in range(batch_size)]
+        base = batch_idx * stride_between_batches
+        starts = [base + i * stride_within_batch for i in range(batch_size)]
         # Skip if any start index goes out of range
         if any(s + block_size + 1 > len(tokens) for s in starts):
             break
@@ -103,16 +111,19 @@ def _eval_ppl_on_tokens(
         n_batches  += 1
 
         if per_token:
-            # Record (last_token_id, per-position loss) for each item in batch
-            # Use per-position loss: CE at each position
+            # Record (token_id, per-position loss) for EVERY position in the
+            # batch, not just the last one. The previous last-token-only logic
+            # produced only batch_size samples per batch (~1.6K for a typical
+            # eval), too few to estimate rare-word PPL: most batches hit zero
+            # rare tokens and the final mean was NaN.
             with torch.no_grad():
                 B, S, V = logits.shape
                 per_pos_loss = F.cross_entropy(
                     logits.view(-1, V), y.view(-1), reduction="none"
-                ).view(B, S)  # (B, S)
-                last_token_ids = y[:, -1].cpu().numpy()
-                last_losses    = per_pos_loss[:, -1].cpu().numpy()
-                for tid, l in zip(last_token_ids, last_losses):
+                ).view(B, S)
+                all_token_ids = y.cpu().numpy().reshape(-1)
+                all_losses    = per_pos_loss.cpu().numpy().reshape(-1)
+                for tid, l in zip(all_token_ids, all_losses):
                     per_token_losses.append((int(tid), float(l)))  # type: ignore
 
     if n_batches == 0:
@@ -178,7 +189,7 @@ def eval_long_context(
     trained_block_size: int,
     batch_size: int,
     device: torch.device,
-    multipliers: tuple[int, ...] = (1, 2, 4),
+    multipliers: tuple[int, ...] = (1, 2, 4, 8, 16),
     max_batches: int = 50,
 ) -> dict[str, float]:
     """

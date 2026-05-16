@@ -1,0 +1,26 @@
+{
+  "label": "legacy::hyper-perhead::ckpt_step8999.pt",
+  "path": "results/checkpoints/hyper-perhead/ckpt_step8999.pt",
+  "run_id": "exp_d_perhead_k10",
+  "step": 8999,
+  "model_type": "hyper-perhead",
+  "d_model": 128,
+  "n_layers": 4,
+  "n_heads": 4,
+  "curvature": null,
+  "curvature_schedule": null,
+  "manifold_float64": false,
+  "dataset": "codeparrot",
+  "ood_source": null,
+  "status": "ok",
+  "id_val_ppl": 34.940430069289576,
+  "ood_val_ppl": null,
+  "rare_word_ppl": 3461330.5929774456,
+  "long_ctx_ppl": {
+    "256": 34.940430069289576,
+    "512": 37.63770434849661,
+    "1024": 43.07886441383187,
+    "2048": 50.85452375356231,
+    "4096": 58.35565138984384
+  }
+}

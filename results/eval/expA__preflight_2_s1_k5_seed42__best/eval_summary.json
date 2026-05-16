@@ -1,0 +1,31 @@
+{
+  "label": "expA::preflight_2_s1_k5_seed42::best",
+  "path": "checkpoints/experiment_a/preflight_2_s1_k5_seed42/best.pt",
+  "run_id": "preflight_2_s1_k5_seed42",
+  "step": 8750,
+  "model_type": "hyper-fixed",
+  "d_model": 64,
+  "n_layers": 4,
+  "n_heads": 2,
+  "curvature": -5.0,
+  "curvature_schedule": {
+    "type": "linear_warmup",
+    "k_start": -1.0,
+    "k_end": -5.0,
+    "warmup_steps": 500
+  },
+  "manifold_float64": true,
+  "dataset": "wikitext2",
+  "ood_source": "data/ood/wikitext103_heldout/ood.bin",
+  "status": "ok",
+  "id_val_ppl": 332.9077990710609,
+  "ood_val_ppl": 497.65527139503286,
+  "rare_word_ppl": 5699182.172469165,
+  "long_ctx_ppl": {
+    "256": 332.9077990710609,
+    "512": 339.5877089386068,
+    "1024": 350.5659689183013,
+    "2048": 365.735397498955,
+    "4096": 389.89192513158895
+  }
+}

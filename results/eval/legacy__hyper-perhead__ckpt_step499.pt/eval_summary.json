@@ -1,0 +1,26 @@
+{
+  "label": "legacy::hyper-perhead::ckpt_step499.pt",
+  "path": "results/checkpoints/hyper-perhead/ckpt_step499.pt",
+  "run_id": "hyper-perhead",
+  "step": 499,
+  "model_type": "hyper-perhead",
+  "d_model": 64,
+  "n_layers": 2,
+  "n_heads": 4,
+  "curvature": null,
+  "curvature_schedule": null,
+  "manifold_float64": false,
+  "dataset": "shakespeare",
+  "ood_source": null,
+  "status": "ok",
+  "id_val_ppl": 30.871311408208825,
+  "ood_val_ppl": null,
+  "rare_word_ppl": 73.9775993229984,
+  "long_ctx_ppl": {
+    "128": 30.871311408208825,
+    "256": 30.927222248378317,
+    "512": 30.96957473276309,
+    "1024": 31.000260265150427,
+    "2048": 31.033417208824172
+  }
+}

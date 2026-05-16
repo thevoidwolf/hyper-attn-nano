@@ -1,0 +1,31 @@
+{
+  "label": "expA::a_s2_hyper_seed42::final",
+  "path": "checkpoints/experiment_a/a_s2_hyper_seed42/final.pt",
+  "run_id": "a_s2_hyper_seed42",
+  "step": 8999,
+  "model_type": "hyper-fixed",
+  "d_model": 128,
+  "n_layers": 4,
+  "n_heads": 4,
+  "curvature": -10.0,
+  "curvature_schedule": {
+    "type": "linear_warmup",
+    "k_start": -1.0,
+    "k_end": -10.0,
+    "warmup_steps": 500
+  },
+  "manifold_float64": true,
+  "dataset": "wikitext2",
+  "ood_source": "data/ood/wikitext103_heldout/ood.bin",
+  "status": "ok",
+  "id_val_ppl": 285.059698885814,
+  "ood_val_ppl": 487.17505181953493,
+  "rare_word_ppl": 4627274.968999214,
+  "long_ctx_ppl": {
+    "256": 285.059698885814,
+    "512": 295.55523605091514,
+    "1024": 320.70989581485134,
+    "2048": 357.35977396681795,
+    "4096": 405.71046292983357
+  }
+}

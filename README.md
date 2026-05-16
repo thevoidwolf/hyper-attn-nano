@@ -1,10 +1,12 @@
 # HyperAttn-Nano
 
-> **Status: archived exploration.** This repo is a completed investigation, not active research. Notes and findings are preserved as a starting point for anyone exploring hyperbolic attention in language models. See the [closing note](#closing-note) for context.
+> **Status: reopened (2026-05-16) after a positive Phase 5 result.** This repo was archived after Phases 1–4 showed hyperbolic attention losing on val PPL at matched params. A Phase 5 round (Probe 2 with QK-norm and a numerical-stability fix, plus an Euclid+QK-norm control) produced the **first hyperbolic variant in the programme to beat Euclidean at matched params on WikiText-2 val PPL** — but the same variant catastrophically degrades at long context. Active again as a "what is actually going on here" investigation. See [closing note](#closing-note) for context.
 
 A minimal proof-of-concept decoder-only language model with **per-head learnable curvature in hyperbolic attention**. Built to test whether giving each attention head its own curvature parameter improves on fixed-curvature hyperbolic attention (the approach used in [HELM](https://arxiv.org/abs/2505.24722)).
 
-**Short answer: hyperbolic attention does not outperform Euclidean at this scale, and the gap does not close on hierarchically-structured data.** Three follow-up experiments tested optimal curvature (K=-10 is the float32 ceiling), float64 precision effects (overfits on prose, neutral on code), and hierarchical data (CodeParrot code widens the euclid–hyperbolic gap). Per-head learnable curvature produces a novel layer-stratification pattern on prose that disappears on code. See [FINDINGS.md](FINDINGS.md) for the full write-up.
+**Short answer (Phases 1–4): hyperbolic attention does not outperform Euclidean at this scale, and the gap does not close on hierarchically-structured data.** Three follow-up experiments tested optimal curvature (K=-10 is the float32 ceiling), float64 precision effects (overfits on prose, neutral on code), and hierarchical data (CodeParrot code widens the euclid–hyperbolic gap). Per-head learnable curvature produces a novel layer-stratification pattern on prose that disappears on code.
+
+**Updated answer (Phase 5, 2026-05-16):** With a hidden bug fixed in the Lorentz score matmul (fp16 overflow under AMP autocast at K ≤ -2) and a per-head QK unit-normalisation added, the `hyper-scores-only` variant at K=-10 reaches **243 PPL** (stochastic best) on WikiText-2 — beating an Euclidean baseline with the same QK-norm (254 PPL) by ~11 PPL at training context length. **However**, the same variant degrades 2.4× from training context to 4× training context, while Euclid+QK-norm degrades only 1.3×. The geometry wins short, loses long. See [FINDINGS.md](FINDINGS.md) and [results/eval/OOD_FINDINGS.md](results/eval/OOD_FINDINGS.md) for the full write-up.
 
 ---
 
@@ -88,6 +90,53 @@ Cross-dataset gap comparison (Hyper fixed K=-10 float32 vs euclid):
 | CodeParrot | 26.2 | 39.9 | **+13.7** |
 
 The euclid–hyperbolic gap is larger on code, not smaller. See [FINDINGS.md](FINDINGS.md) for the full analysis.
+
+### Phase 5 — Probe 2 (scores-only K=-10 + QK-norm + warmup) and Euclid+QK-norm control (WikiText-2)
+
+Probe 2 was originally written down in the infrastructure spec as a single diagnostic
+run alongside Probe 1, but it NaN'd at step 0 and was never re-run. This phase
+diagnosed the failure (fp16 overflow in the Lorentz score matmul under AMP autocast
+when K ≤ -2), patched the attention class with an `autocast(enabled=False)` wrap and
+per-head QK unit-normalisation, and trained Probe 2 to completion. To isolate the
+geometry contribution from the QK-norm contribution, a matched Euclidean baseline
+with the same QK-norm and same training recipe was also trained.
+
+Stochastic 50-batch best-val PPL (apples-to-apples vs the earlier programme numbers):
+
+| Variant (WikiText-2, NANO d=128, ~7.2M params, LR=6e-4)         | Best val PPL |
+|------------------------------------------------------------------|-------------:|
+| **Probe 2 (Lorentz scores K=-10 + QK-norm + warmup)**            |   **242.69** |
+| **Euclid + QK-norm @ LR=6e-4 (new control)**                     |   **253.62** |
+| Probe 1 (hyper-fixed K=-1 → K=-10 warmup)                        |       269.28 |
+| exp_b k10 (hyper-fixed K=-10, no warmup, no QK-norm)             |       283.70 |
+| Euclid V3 (LR=3e-4, vanilla, checkpoint subsequently overwritten)|       277.10 |
+
+This is the first hyperbolic variant in the programme to beat Euclidean at matched
+params. The geometry contributes ~11 PPL on top of QK-norm; QK-norm itself contributes
+~24 PPL on top of vanilla Euclidean.
+
+Full-split eval and the extended OOD pack (now with rare-word-loss-at-every-position
+fix and long-context multipliers 1 / 2 / 4 / 8 / 16 = 256 / 512 / 1024 / 2048 / 4096
+tokens) show a sharp short-vs-long context trade-off:
+
+| Variant (NANO d=128, WikiText-2)             |   id  |  ood  |  c256 |  c512 |  c1024 |  c2048 |  c4096 | c4096 / c256 |
+|----------------------------------------------|------:|------:|------:|------:|-------:|-------:|-------:|-------------:|
+| Probe 2 (Lorentz scores + QK-norm)           | 254.9 | 380.3 | 254.9 | 281.0 |  367.4 |  476.9 |  616.8 |    **2.42×** |
+| Euclid + QK-norm                             | 262.0 | 401.0 | 262.0 | 272.3 |  288.0 |  309.6 |  341.3 |        1.30× |
+| V1 hyper-fixed K=-1                          | 327.8 | 398.9 | 327.8 | 333.8 |  342.6 |  354.6 |  372.4 |        1.14× |
+
+At 16× training context, Probe 2 is 80% worse than Euclid+QK-norm despite winning at
+training context. The K=-1 V1 hyperbolic models (no QK-norm, no |K|-amplified scores)
+have excellent long-context retention but high absolute PPL. The most plausible
+mechanism: at K=-10 the `|K|·(-⟨q,k⟩_L) / √d_head` score formula amplifies softmax
+sharpness ~10×, which the model learns to use at training-context length but which
+saturates onto wrong positions when the candidate set grows. This is testable: if
+Probe 2 with K=-3 or K=-5 has milder long-context degradation, the |K| amplifier is
+the mechanism. Not run yet.
+
+See [results/eval/OOD_FINDINGS.md](results/eval/OOD_FINDINGS.md) for the full table,
+mechanism discussion, and damage notes (this round overwrote the `exp_d_euclid`
+checkpoint, blocking a CodeParrot long-context follow-up that was flagged in round 1).
 
 ---
 
@@ -270,8 +319,38 @@ pytest tests/
 
 ## Closing note
 
-This repository is a completed exploration. I am a solo engineer, not an academic, and the hyperbolic LLM research programme is moving quickly in a well-resourced lab (Yang, He, Ying et al. at Yale and CUHK) publishing at NeurIPS/KDD cadence. Competing directly on their central research directions is not well-matched to my constraints.
+This repository was archived after Phases 1–4, then reopened in 2026-05-16 after a
+Phase 5 round produced the first positive hyperbolic-vs-Euclidean result in the
+programme. I am a solo engineer, not an academic, and the hyperbolic LLM research
+programme is moving quickly in a well-resourced lab (Yang, He, Ying et al. at Yale
+and CUHK) publishing at NeurIPS/KDD cadence. Competing directly on their central
+research directions is not well-matched to my constraints.
 
-The specific architectural gap this work targeted - per-head learnable curvature in attention, and its interpretability - is a narrow axis that HELM did not explore. The findings here are real (layer stratification on prose, scale-dependent stability wall, float64-as-overfitting on prose) but do not translate into the order-of-magnitude efficiency improvement the original research question demanded.
+The specific architectural gap this work targeted — per-head learnable curvature in
+attention, and its interpretability — is a narrow axis that HELM did not explore.
+The Phase 1–4 findings are real (layer stratification on prose, scale-dependent
+stability wall, float64-as-overfitting on prose) but did not translate into the
+order-of-magnitude efficiency improvement the original research question demanded.
 
-I may revisit this if one of the systems-level openings (quantisation, on-device inference for hyperbolic operations) becomes more tractable. Until then, these notes and the code exist so someone else doesn't have to repeat the scouting phase. Issues and questions welcome.
+Phase 5 changes the picture in two ways. First, the score-only Lorentz attention
+variant (Lorentz scores, Euclidean values, no manifold round-trip on the value path)
+beats a matched Euclidean+QK-norm baseline by ~11 PPL at training context length.
+That is a real architectural signal, not a wash. Second, the same recipe degrades
+2.4× from 256 → 4096 token context while the Euclidean baseline degrades only 1.3×,
+which suggests the |K|-amplified score formula is buying training-length quality at
+the cost of length generalisation. The next step the data warrants — running Probe 2
+at K=-3 or K=-5 to test whether the long-context degradation scales with |K| — is
+cheap (~80 min on a 3060) and would confirm or kill the mechanism story.
+
+**Suggested resumption order** for anyone (including me later) picking this up:
+
+1. **Probe 2 at K=-3 and K=-5** — confirms / falsifies the |K|-amplifier hypothesis.
+2. **Fix `train.py:save_checkpoint`** to use `run_id`-keyed paths (currently
+   `model.type`-keyed, which silently overwrites between experiments — already cost
+   us the `exp_d_euclid` checkpoint in Phase 5).
+3. **Rerun `exp_d_euclid`** to restore the CodeParrot Euclidean baseline so the
+   long-context comparison on code can be completed.
+4. **Probe 2 on CodeParrot** if 1 confirms the mechanism (it would tell us whether
+   the short-vs-long trade-off is data-dependent).
+
+Issues and questions welcome.

@@ -441,7 +441,7 @@ def main():
         k: cfg["model"][k]
         for k in ["d_model", "n_layers", "n_heads", "d_ff", "max_seq_len", "vocab_size"]
     }
-    for opt_key in ("manifold_float64", "output_head", "spherical_temperature_init"):
+    for opt_key in ("manifold_float64", "output_head", "spherical_temperature_init", "qk_norm"):
         if opt_key in cfg["model"]:
             model_cfg[opt_key] = cfg["model"][opt_key]
 

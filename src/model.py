@@ -193,10 +193,11 @@ class _EuclideanFFN(nn.Module):
 
 
 class _EuclideanDecoderBlock(nn.Module):
-    def __init__(self, d_model: int, n_heads: int, d_ff: int, d_head: int):
+    def __init__(self, d_model: int, n_heads: int, d_ff: int, d_head: int,
+                 qk_norm: bool = False):
         super().__init__()
         self.norm1 = _RMSNorm(d_model)
-        self.attn  = EuclideanAttention(d_model, n_heads, d_head)
+        self.attn  = EuclideanAttention(d_model, n_heads, d_head, qk_norm=qk_norm)
         self.norm2 = _RMSNorm(d_model)
         self.ffn   = _EuclideanFFN(d_model, d_ff)
 
@@ -217,6 +218,7 @@ class GPTNano(nn.Module):
         d_ff       = config['d_ff']
         vocab_size = config['vocab_size']
         d_head     = d_model // n_heads
+        qk_norm    = config.get('qk_norm', False)
 
         self.d_model    = d_model
         self.vocab_size = vocab_size
@@ -225,7 +227,7 @@ class GPTNano(nn.Module):
         nn.init.normal_(self.embed.weight, std=0.02)
 
         self.blocks = nn.ModuleList([
-            _EuclideanDecoderBlock(d_model, n_heads, d_ff, d_head)
+            _EuclideanDecoderBlock(d_model, n_heads, d_ff, d_head, qk_norm=qk_norm)
             for _ in range(n_layers)
         ])
 

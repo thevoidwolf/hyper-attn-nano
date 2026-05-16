@@ -1,0 +1,26 @@
+{
+  "label": "legacy::hyper-fixed::ckpt_step4999.pt",
+  "path": "results/checkpoints/hyper-fixed/ckpt_step4999.pt",
+  "run_id": "hyper-fixed",
+  "step": 4999,
+  "model_type": "hyper-fixed",
+  "d_model": 128,
+  "n_layers": 4,
+  "n_heads": 4,
+  "curvature": -1.0,
+  "curvature_schedule": null,
+  "manifold_float64": false,
+  "dataset": "wikitext2",
+  "ood_source": "data/ood/wikitext103_heldout/ood.bin",
+  "status": "ok",
+  "id_val_ppl": 327.80313132655135,
+  "ood_val_ppl": 487.8135485892813,
+  "rare_word_ppl": 4532989.2238736255,
+  "long_ctx_ppl": {
+    "256": 327.80313132655135,
+    "512": 333.84456478824666,
+    "1024": 342.5725290980029,
+    "2048": 354.5789190394783,
+    "4096": 372.37799774471415
+  }
+}

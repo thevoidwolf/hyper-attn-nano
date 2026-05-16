@@ -6,7 +6,11 @@ model:
   d_ff:        512
   max_seq_len: 256
   vocab_size:  50257
-  curvature:   -10.0
+  curvature_schedule:
+    type:         linear_warmup
+    k_start:      -1.0
+    k_end:        -10.0
+    warmup_steps: 500
 
 training:
   dataset:       wikitext2
